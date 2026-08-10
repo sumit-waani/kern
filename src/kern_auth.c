@@ -292,6 +292,8 @@ static bool verify_pbkdf2(const char *password, const char *hash_str) {
     char *endptr;
     unsigned long iterations = strtoul(p, &endptr, 10);
     if (*endptr != ':') return false;
+    /* Reject iteration counts outside safe bounds to prevent CPU DoS */
+    if (iterations < 1000 || iterations > 1000000) return false;
     p = endptr + 1;
 
     /* Parse hex salt (32 hex chars = 16 bytes) */

@@ -26,6 +26,7 @@
 static kern_dict_t *g_session_store = NULL;
 static uint32_t g_session_ttl = KERN_SESSION_TTL_DEFAULT;
 static uint32_t g_session_max = KERN_SESSION_MAX_DEFAULT;
+static time_t g_next_eviction_time = 0;
 
 struct kern_session {
     char *id;
@@ -132,6 +133,11 @@ static bool find_expired_cb(const char *key, void *value, void *userdata) {
 static void evict_expired_sessions(void) {
     if (!g_session_store) return;
 
+    /* Throttle: only run eviction scan at most once per minute */
+    time_t now = time(NULL);
+    if (now < g_next_eviction_time) return;
+    g_next_eviction_time = now + 60;
+
     size_t count = kern_dict_count(g_session_store);
     if (count == 0) return;
 
@@ -191,9 +197,18 @@ static void evict_oldest_session(void) {
     }
 }
 
+/* Iteration callback to free all sessions during re-init */
+static bool free_all_sessions_cb(const char *key, void *value, void *userdata) {
+    (void)key;
+    (void)userdata;
+    free_session(value);
+    return true; /* continue iteration */
+}
+
 void kern_session_init(void) {
     if (g_session_store) {
-        /* Free all sessions in the store */
+        /* Free all session structs before destroying the dict */
+        kern_dict_iter(g_session_store, free_all_sessions_cb, NULL);
         kern_dict_free(g_session_store);
     }
     g_session_store = kern_dict_new();
