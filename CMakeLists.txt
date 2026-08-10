@@ -29,6 +29,10 @@ add_library(kern STATIC
     src/kern_router.c
     src/kern_middleware.c
     src/kern_fs_router.c
+    src/kern_html.c
+    src/kern_tpl_parser.c
+    src/kern_tpl_codegen.c
+    src/kern_tpl_compile.c
 )
 
 target_include_directories(kern PUBLIC
@@ -51,7 +55,7 @@ target_link_directories(kern PUBLIC
 enable_testing()
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
@@ -61,3 +65,8 @@ endforeach()
 
 # test_http_server needs pthreads for the integration test
 target_link_libraries(test_http_server PRIVATE pthread)
+
+# Pass fixtures directory to the integration test
+target_compile_definitions(test_tpl_integration PRIVATE
+    TEST_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures"
+)

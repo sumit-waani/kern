@@ -629,6 +629,130 @@ int kern_fs_generate_registry(kern_fs_entry_t *entries, int count, const char *o
  */
 void kern_server_set_router(kern_server_t *server, kern_router_t *router);
 
+/* ============================================================
+ * HTML Utilities API (kern_html.c)
+ * ============================================================ */
+
+/**
+ * Escape a string for safe HTML output.
+ * Replaces &, <, >, ", ' with their HTML entity equivalents.
+ * Writes the escaped output into buf.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_html_escape(kern_buf_t *buf, const char *str);
+
+/* ============================================================
+ * Template Engine Types and API
+ * ============================================================ */
+
+/**
+ * kern_tpl_node_type_t - AST node types for parsed templates.
+ */
+typedef enum {
+    KERN_TPL_ELEMENT,    /* HTML element (tag + attrs + children) */
+    KERN_TPL_TEXT,       /* Literal text content */
+    KERN_TPL_INTERP,    /* Expression interpolation #{} or !{} */
+    KERN_TPL_STATEMENT,  /* C code statement (- if/for/etc) */
+    KERN_TPL_INCLUDE,   /* Include a partial template */
+    KERN_TPL_EXTEND,    /* Extend a parent layout */
+    KERN_TPL_BLOCK,     /* Define a fillable block region */
+    KERN_TPL_DOCTYPE    /* Doctype declaration */
+} kern_tpl_node_type_t;
+
+/**
+ * kern_tpl_attr_t - An attribute on an element node.
+ */
+typedef struct {
+    char *name;       /* Attribute name */
+    char *value;      /* Attribute value (NULL for boolean attrs) */
+    bool dynamic;     /* true if value is a C expression ({expr}) */
+} kern_tpl_attr_t;
+
+/**
+ * kern_tpl_node_t - A node in the template AST.
+ */
+typedef struct kern_tpl_node {
+    kern_tpl_node_type_t type;
+
+    /* For ELEMENT nodes */
+    char *tag;                     /* Tag name */
+    kern_tpl_attr_t *attrs;        /* Array of attributes */
+    int attr_count;                /* Number of attributes */
+    bool is_void;                  /* True for void/self-closing tags */
+
+    /* For TEXT, STATEMENT, INCLUDE, EXTEND, BLOCK, DOCTYPE nodes */
+    char *text;                    /* Text content / path / block name */
+
+    /* For INTERP nodes */
+    char *expr;                    /* Expression string */
+    bool escaped;                  /* true = #{} (escaped), false = !{} (raw) */
+
+    /* Child nodes */
+    struct kern_tpl_node **children;
+    size_t children_count;
+    size_t children_cap;
+} kern_tpl_node_t;
+
+/* ============================================================
+ * Template Parser API (kern_tpl_parser.c)
+ * ============================================================ */
+
+/**
+ * Parse a .khtml template source string into an AST.
+ * Returns the root node of the AST. Caller must free with kern_tpl_node_free().
+ */
+kern_tpl_node_t *kern_tpl_parse(const char *source);
+
+/**
+ * Parse a .khtml template file into an AST.
+ * Returns the root node of the AST. Caller must free with kern_tpl_node_free().
+ */
+kern_tpl_node_t *kern_tpl_parse_file(const char *path);
+
+/**
+ * Free a template AST node and all its children recursively.
+ */
+void kern_tpl_node_free(kern_tpl_node_t *node);
+
+/* ============================================================
+ * Template Code Generator API (kern_tpl_codegen.c)
+ * ============================================================ */
+
+/**
+ * Generate C source code from a template AST.
+ * The generated function has the signature:
+ *   void <func_name>(kern_buf_t *buf, kern_dict_t *vars);
+ *
+ * Returns a malloc'd string containing the generated C code.
+ * Caller must free() the returned string.
+ */
+char *kern_tpl_codegen(kern_tpl_node_t *ast, const char *func_name);
+
+/* ============================================================
+ * Template Compilation API (kern_tpl_compile.c)
+ * ============================================================ */
+
+/**
+ * Compile a single .khtml file to a .c output file.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_tpl_compile_file(const char *input_path, const char *output_path);
+
+/**
+ * Compile a template from a source string.
+ * Writes the generated C code to *out_code (caller must free).
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_tpl_compile_string(const char *source, const char *func_name,
+                            char **out_code);
+
+/**
+ * Compile all .khtml/.kfrag files in a views directory.
+ * Generates a kern_views.h header with extern declarations.
+ * Returns the number of templates found, or -1 on error.
+ */
+int kern_tpl_compile_dir(const char *views_dir, const char *output_dir);
+
 #ifdef __cplusplus
 }
 #endif
