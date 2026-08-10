@@ -218,7 +218,60 @@ int cmd_build(int argc, char **argv) {
         }
     }
 
-    /* Step 4: Compile everything */
+    /* Step 4: Tailwind CSS compilation */
+    {
+        printf("[kern] scanning for Tailwind classes...\n");
+        kern_buf_t *tw_classes = kern_buf_new(4096);
+        if (tw_classes) {
+            /* Scan .khtml files in views/ */
+            if (dir_exists("views")) {
+                DIR *d = opendir("views");
+                if (d) {
+                    struct dirent *ent;
+                    while ((ent = readdir(d)) != NULL) {
+                        size_t nlen = strlen(ent->d_name);
+                        if (nlen > 6 && strcmp(ent->d_name + nlen - 6, ".khtml") == 0) {
+                            char fpath[2048];
+                            snprintf(fpath, sizeof(fpath), "views/%s", ent->d_name);
+                            kern_tw_scan_file(fpath, tw_classes);
+                        }
+                    }
+                    closedir(d);
+                }
+            }
+            /* Scan .khtml files in pages/ */
+            if (dir_exists("pages")) {
+                DIR *d = opendir("pages");
+                if (d) {
+                    struct dirent *ent;
+                    while ((ent = readdir(d)) != NULL) {
+                        size_t nlen = strlen(ent->d_name);
+                        if ((nlen > 6 && strcmp(ent->d_name + nlen - 6, ".khtml") == 0) ||
+                            (nlen > 2 && strcmp(ent->d_name + nlen - 2, ".c") == 0) ||
+                            (nlen > 2 && strcmp(ent->d_name + nlen - 2, ".h") == 0)) {
+                            char fpath[2048];
+                            snprintf(fpath, sizeof(fpath), "pages/%s", ent->d_name);
+                            kern_tw_scan_file(fpath, tw_classes);
+                        }
+                    }
+                    closedir(d);
+                }
+            }
+
+            /* Compile classes to CSS if any found */
+            if (kern_buf_len(tw_classes) > 0) {
+                ensure_dir("public/assets");
+                const char *class_data = kern_buf_data(tw_classes);
+                int tw_rc = kern_tw_compile_to_file(class_data, "public/assets/tailwind.css");
+                if (tw_rc == 0) {
+                    printf("[kern] compiled Tailwind CSS\n");
+                }
+            }
+            kern_buf_free(tw_classes);
+        }
+    }
+
+    /* Step 5: Compile everything */
     const char *cc = find_cc();
     if (!cc) {
         fprintf(stderr, "Error: no C compiler found. Set CC environment variable.\n");
