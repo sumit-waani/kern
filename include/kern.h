@@ -69,6 +69,35 @@ typedef struct kern_server kern_server_t;
 typedef struct kern_http_parser kern_http_parser_t;
 typedef struct kern_router kern_router_t;
 
+/* Forward declarations for database/config/session structs */
+typedef struct kern_db kern_db_t;
+typedef struct kern_db_result kern_db_result_t;
+typedef struct kern_qb kern_qb_t;
+typedef struct kern_config kern_config_t;
+typedef struct kern_session kern_session_t;
+
+/**
+ * kern_db_param_type_t - Types for parameterized query values.
+ */
+typedef enum {
+    KERN_DB_PARAM_NULL,
+    KERN_DB_PARAM_INT,
+    KERN_DB_PARAM_STR,
+    KERN_DB_PARAM_DOUBLE
+} kern_db_param_type_t;
+
+/**
+ * kern_db_param_t - A single parameter for parameterized queries.
+ */
+typedef struct {
+    kern_db_param_type_t type;
+    union {
+        int64_t i;
+        const char *s;
+        double d;
+    } value;
+} kern_db_param_t;
+
 /**
  * kern_handler_fn - HTTP request handler callback.
  * Receives a request, returns a response. The caller frees the response.
@@ -752,6 +781,313 @@ int kern_tpl_compile_string(const char *source, const char *func_name,
  * Returns the number of templates found, or -1 on error.
  */
 int kern_tpl_compile_dir(const char *views_dir, const char *output_dir);
+
+/* ============================================================
+ * Database API (kern_db.c)
+ * ============================================================ */
+
+/**
+ * Open a SQLite database. Enables WAL mode and sets busy timeout to 5000ms.
+ * Use ":memory:" for an in-memory database.
+ */
+kern_db_t *kern_db_open(const char *path);
+
+/**
+ * Close the database connection.
+ */
+void kern_db_close(kern_db_t *db);
+
+/**
+ * Execute a SQL statement (no result set). Use for DDL, INSERT, UPDATE, DELETE.
+ * Returns number of rows affected, or -1 on error.
+ */
+int kern_db_exec(kern_db_t *db, const char *sql);
+
+/**
+ * Execute a query and return result set.
+ * Caller must free with kern_db_result_free().
+ */
+kern_db_result_t *kern_db_query(kern_db_t *db, const char *sql);
+
+/**
+ * Execute a parameterized statement (no result set).
+ * Returns number of rows affected, or -1 on error.
+ */
+int kern_db_exec_params(kern_db_t *db, const char *sql,
+                        const kern_db_param_t *params, int param_count);
+
+/**
+ * Execute a parameterized query and return result set.
+ * Caller must free with kern_db_result_free().
+ */
+kern_db_result_t *kern_db_query_params(kern_db_t *db, const char *sql,
+                                       const kern_db_param_t *params, int param_count);
+
+/**
+ * Get a string value from a result set cell.
+ * Returns NULL if the cell is SQL NULL or indices are out of bounds.
+ */
+const char *kern_db_row_str(const kern_db_result_t *result, int row, int col);
+
+/**
+ * Get an integer value from a result set cell.
+ * Returns 0 if the cell is NULL or indices are out of bounds.
+ */
+int64_t kern_db_row_int(const kern_db_result_t *result, int row, int col);
+
+/**
+ * Get the number of rows in a result set.
+ */
+int kern_db_result_row_count(const kern_db_result_t *result);
+
+/**
+ * Get the number of columns in a result set.
+ */
+int kern_db_result_col_count(const kern_db_result_t *result);
+
+/**
+ * Get the name of a column by index.
+ */
+const char *kern_db_result_col_name(const kern_db_result_t *result, int col);
+
+/**
+ * Free a result set.
+ */
+void kern_db_result_free(kern_db_result_t *result);
+
+/**
+ * Begin a transaction.
+ */
+int kern_db_begin(kern_db_t *db);
+
+/**
+ * Commit the current transaction.
+ */
+int kern_db_commit(kern_db_t *db);
+
+/**
+ * Rollback the current transaction.
+ */
+int kern_db_rollback(kern_db_t *db);
+
+/* ============================================================
+ * Query Builder API (kern_qb.c)
+ * ============================================================ */
+
+/**
+ * Create a new query builder associated with a database.
+ */
+kern_qb_t *kern_qb_new(kern_db_t *db);
+
+/**
+ * Free the query builder.
+ */
+void kern_qb_free(kern_qb_t *qb);
+
+/**
+ * Set SELECT columns. E.g., "*" or "id, title, slug".
+ */
+void kern_qb_select(kern_qb_t *qb, const char *columns);
+
+/**
+ * Set FROM table.
+ */
+void kern_qb_from(kern_qb_t *qb, const char *table);
+
+/**
+ * Add a WHERE clause with a string parameter.
+ * E.g., kern_qb_where_str(qb, "email", "=", "test@example.com")
+ */
+void kern_qb_where_str(kern_qb_t *qb, const char *col, const char *op, const char *val);
+
+/**
+ * Add a WHERE clause with an integer parameter.
+ * E.g., kern_qb_where_int(qb, "id", "=", 42)
+ */
+void kern_qb_where_int(kern_qb_t *qb, const char *col, const char *op, int64_t val);
+
+/**
+ * Set ORDER BY clause.
+ */
+void kern_qb_order(kern_qb_t *qb, const char *col, const char *direction);
+
+/**
+ * Set LIMIT.
+ */
+void kern_qb_limit(kern_qb_t *qb, int n);
+
+/**
+ * Set OFFSET.
+ */
+void kern_qb_offset(kern_qb_t *qb, int n);
+
+/**
+ * Start an INSERT INTO statement.
+ */
+void kern_qb_insert(kern_qb_t *qb, const char *table);
+
+/**
+ * Start an UPDATE statement.
+ */
+void kern_qb_update(kern_qb_t *qb, const char *table);
+
+/**
+ * Start a DELETE FROM statement.
+ */
+void kern_qb_delete(kern_qb_t *qb, const char *table);
+
+/**
+ * Set a string column value (for INSERT/UPDATE).
+ */
+void kern_qb_set_str(kern_qb_t *qb, const char *col, const char *val);
+
+/**
+ * Set an integer column value (for INSERT/UPDATE).
+ */
+void kern_qb_set_int(kern_qb_t *qb, const char *col, int64_t val);
+
+/**
+ * Build and return the generated SQL string. Useful for debugging.
+ * The returned string is owned by the query builder (do not free).
+ */
+const char *kern_qb_build(kern_qb_t *qb);
+
+/**
+ * Execute the built query (for INSERT/UPDATE/DELETE).
+ * Returns rows affected, or -1 on error.
+ */
+int kern_qb_exec(kern_qb_t *qb);
+
+/**
+ * Execute the built query and return result set.
+ * Caller must free with kern_db_result_free().
+ */
+kern_db_result_t *kern_qb_query(kern_qb_t *qb);
+
+/**
+ * Execute with implicit LIMIT 1 and return result set.
+ * Caller must free with kern_db_result_free().
+ */
+kern_db_result_t *kern_qb_one(kern_qb_t *qb);
+
+/* ============================================================
+ * Migration Runner API (kern_migrate.c)
+ * ============================================================ */
+
+/**
+ * Initialize the migrations tracking table.
+ */
+int kern_migrate_init(kern_db_t *db);
+
+/**
+ * Run all pending migrations from the given directory.
+ * Returns number of migrations applied, or -1 on error.
+ */
+int kern_migrate_up(kern_db_t *db, const char *migrations_dir);
+
+/**
+ * Roll back the last applied migration.
+ * Returns 1 on success, 0 if nothing to roll back, -1 on error.
+ */
+int kern_migrate_down(kern_db_t *db, const char *migrations_dir);
+
+/**
+ * Get status of all migrations.
+ * Returns a result set with columns: name, status (applied/pending).
+ * Caller must free with kern_db_result_free().
+ */
+kern_db_result_t *kern_migrate_status(kern_db_t *db, const char *migrations_dir);
+
+/* ============================================================
+ * Configuration API (kern_config.c)
+ * ============================================================ */
+
+/**
+ * Load a TOML configuration file.
+ * Supports sections, strings, integers, booleans, and ${env:VAR} expansion.
+ */
+kern_config_t *kern_config_load(const char *path);
+
+/**
+ * Get a string value by dotted key (e.g., "app.name").
+ * Returns NULL if key not found or not a string.
+ */
+const char *kern_config_get_str(const kern_config_t *cfg, const char *key);
+
+/**
+ * Get an integer value by dotted key.
+ * Returns 0 if key not found or not an integer.
+ */
+int64_t kern_config_get_int(const kern_config_t *cfg, const char *key);
+
+/**
+ * Get a boolean value by dotted key.
+ * Returns false if key not found or not a boolean.
+ */
+bool kern_config_get_bool(const kern_config_t *cfg, const char *key);
+
+/**
+ * Free the configuration object.
+ */
+void kern_config_free(kern_config_t *cfg);
+
+/* ============================================================
+ * Session API (kern_session.c)
+ * ============================================================ */
+
+/**
+ * Initialize the global session store.
+ */
+void kern_session_init(void);
+
+/**
+ * Start or resume a session from the request.
+ * Looks for "kern_session" cookie; creates a new session if not found.
+ */
+kern_session_t *kern_session_start(kern_req_t *req);
+
+/**
+ * Get a session value by key.
+ */
+const char *kern_session_get(const kern_session_t *session, const char *key);
+
+/**
+ * Set a session value.
+ */
+void kern_session_set(kern_session_t *session, const char *key, const char *value);
+
+/**
+ * Destroy a session by ID.
+ */
+void kern_session_destroy(const char *session_id);
+
+/**
+ * Get the session ID.
+ */
+const char *kern_session_id(const kern_session_t *session);
+
+/**
+ * Get the Set-Cookie header value for this session.
+ * Returns a static buffer (not thread-safe for concurrent use).
+ */
+const char *kern_session_cookie(const kern_session_t *session);
+
+/* ============================================================
+ * Password Auth API (kern_auth.c)
+ * ============================================================ */
+
+/**
+ * Hash a password using SHA-256 with a random salt.
+ * Returns allocated string in format "hex_salt$hex_hash".
+ * Caller must free the returned string.
+ */
+char *kern_password_hash(const char *password);
+
+/**
+ * Verify a password against a stored hash string.
+ * Returns true if the password matches.
+ */
+bool kern_password_verify(const char *password, const char *hash_str);
 
 #ifdef __cplusplus
 }

@@ -33,6 +33,12 @@ add_library(kern STATIC
     src/kern_tpl_parser.c
     src/kern_tpl_codegen.c
     src/kern_tpl_compile.c
+    src/kern_db.c
+    src/kern_qb.c
+    src/kern_migrate.c
+    src/kern_config.c
+    src/kern_session.c
+    src/kern_auth.c
 )
 
 target_include_directories(kern PUBLIC
@@ -55,7 +61,7 @@ target_link_directories(kern PUBLIC
 enable_testing()
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
