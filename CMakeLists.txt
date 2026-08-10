@@ -42,6 +42,8 @@ add_library(kern STATIC
     src/kern_asset.c
     src/kern_fmt.c
     src/kern_test.c
+    src/kern_shard.c
+    src/kern_shard_static.c
     src/kern_app.c
 )
 
@@ -77,7 +79,7 @@ set_target_properties(kern_cli PROPERTIES OUTPUT_NAME "kern")
 target_link_libraries(kern_cli PRIVATE kern)
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static test_fmt test_test_framework)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static test_fmt test_test_framework test_shard)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
@@ -87,6 +89,11 @@ endforeach()
 
 # test_http_server needs pthreads for the integration test
 target_link_libraries(test_http_server PRIVATE pthread)
+
+# kern_shard_static.c uses an overlength string literal for embedded JS
+set_source_files_properties(src/kern_shard_static.c PROPERTIES
+    COMPILE_FLAGS "-Wno-overlength-strings"
+)
 
 # Pass fixtures directory to the integration test
 target_compile_definitions(test_tpl_integration PRIVATE

@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Implement the Shards system (HTMX-style server-rendered interactivity) and the kern-shards.js client runtime. Shards allow server-rendered HTML fragments to be fetched and swapped into the DOM on user events.",
+  "status": "in_progress",
+  "steps": [
+    "Create src/kern_shard.c implementing server-side shard support: KERN_SHARD() macro for registering shard handlers (similar to route handlers but return fragments without layout), kern_shard_response() helper that sets appropriate headers (X-Kern-Shard: true, Content-Type: text/html; fragment), kern_shard_register(router, path, handler) for programmatic registration.",
+    "Add shard API to include/kern.h: kern_shard_register(), kern_shard_response(), the KERN_SHARD() macro, data structures for shard metadata.",
+    "Create static/kern-shards.js - the ~10KB vanilla ES2020 client runtime: listens for click/submit/input events on elements with data-shard attribute, fetches the shard URL, swaps the response HTML into the target element. Supports: data-shard (URL), data-shard-target (CSS selector, defaults to self), data-shard-swap (outer|inner|before|after|append|prepend, defaults to inner), data-shard-trigger (click|submit|input|load|revealed), data-shard-confirm (confirmation prompt), data-shard-method (GET|POST|PUT|DELETE, default GET), data-shard-indicator (CSS selector to show during loading). Also handles form serialization for POST shards.",
+    "Create src/kern_shard_static.c that embeds the kern-shards.js content as a C string constant (or reads from a known path) so the framework can serve it at /assets/kern-shards.js automatically when shards are enabled.",
+    "Add kern_shard.c and kern_shard_static.c to CMakeLists.txt. Add static/ directory for the JS source.",
+    "Create tests/test_shard.c testing: shard handler registration, shard response generation with correct headers, fragment HTML output without layout wrapping.",
+    "Add test_shard to KERN_TESTS in CMakeLists.txt."
+  ],
+  "acceptance_criteria": [
+    "KERN_SHARD macro and kern_shard_register() work for registering fragment handlers",
+    "Shard responses include X-Kern-Shard header and omit layout wrapping",
+    "kern-shards.js is < 12KB, uses vanilla ES2020 with no dependencies",
+    "kern-shards.js handles click, submit, input, load triggers correctly",
+    "kern-shards.js supports all swap modes: outer, inner, before, after, append, prepend",
+    "test_shard passes all assertions",
+    "Full build compiles cleanly with -Wall -Wextra -pedantic"
+  ],
+  "verification": [
+    "cd build && cmake .. && make -j$(nproc)",
+    "cd build && ctest --output-on-failure",
+    "wc -c static/kern-shards.js to verify size < 12KB"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1207,6 +1207,54 @@ int kern_fmt_file(const char *path);
 int kern_fmt_check(const char *path);
 
 /* ============================================================
+ * Shards API (kern_shard.c) - Server-rendered interactivity
+ * ============================================================ */
+
+/**
+ * Create a shard response with appropriate headers.
+ * Sets X-Kern-Shard: true and Content-Type: text/html; charset=utf-8.
+ */
+kern_response_t *kern_shard_response(int status, const char *html);
+
+/**
+ * Create a shard response from a buffer.
+ * Sets X-Kern-Shard: true and Content-Type: text/html; charset=utf-8.
+ */
+kern_response_t *kern_shard_response_buf(int status, kern_buf_t *buf);
+
+/**
+ * Register a shard handler on the router.
+ * Shards are GET route handlers that return HTML fragments without layout.
+ */
+int kern_shard_register(kern_router_t *router, const char *path, kern_handler_fn handler);
+
+/**
+ * Check if a request is a shard request (has X-Kern-Shard: true header).
+ * Useful for handlers that can serve both full pages and fragments.
+ */
+bool kern_is_shard_request(const kern_req_t *req);
+
+/* ============================================================
+ * Shards Static Content (kern_shard_static.c)
+ * ============================================================ */
+
+/**
+ * Get the embedded kern-shards.js content.
+ */
+const char *kern_shards_js(void);
+
+/**
+ * Get the length of the embedded kern-shards.js content.
+ */
+size_t kern_shards_js_len(void);
+
+/**
+ * Handler that serves the kern-shards.js client runtime.
+ * Responds with correct content-type and caching headers.
+ */
+kern_response_t *kern_shards_js_serve(kern_req_t *req);
+
+/* ============================================================
  * Password Auth API (kern_auth.c)
  * ============================================================ */
 
