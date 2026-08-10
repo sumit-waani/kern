@@ -626,6 +626,77 @@ kern_response_t *kern_router_dispatch(kern_router_t *router, kern_req_t *req,
 kern_response_t *kern_middleware_logger(kern_req_t *req, kern_handler_fn next);
 
 /* ============================================================
+ * Asset Pipeline API (kern_asset.c)
+ * ============================================================ */
+
+/**
+ * Hash a single file and copy it to output_dir with a content-hash in the name.
+ * Returns the hashed filename (e.g., "app-a1b2c3d4.css").
+ * Caller must free() the returned string. Returns NULL on error.
+ */
+char *kern_asset_hash_file(const char *input_path, const char *output_dir);
+
+/**
+ * Process all assets in a directory recursively.
+ * Hashes each file into public_dir and generates a C manifest file.
+ * Returns the number of assets processed, or -1 on error.
+ */
+int kern_asset_process_dir(const char *assets_dir, const char *public_dir,
+                           const char *manifest_path);
+
+/**
+ * Runtime lookup for an asset URL by its original path.
+ * For v0.1, returns NULL (use compile-time #defines from manifest instead).
+ */
+const char *kern_asset_url(const char *original_path);
+
+/* ============================================================
+ * Application API (kern_app.c)
+ * ============================================================ */
+
+/**
+ * Create a new application instance.
+ * Loads kern.toml config, initializes session store, database, and router.
+ */
+kern_app_t *kern_app_new(const char *name);
+
+/**
+ * Set the listen port for the application.
+ */
+void kern_app_listen(kern_app_t *app, int port);
+
+/**
+ * Run the application event loop. Starts the HTTP server.
+ * Returns 0 on clean shutdown, non-zero on error.
+ */
+int kern_app_run(kern_app_t *app);
+
+/**
+ * Get the application router (for registering routes).
+ */
+kern_router_t *kern_app_router(kern_app_t *app);
+
+/**
+ * Get the application database connection (may be NULL if not configured).
+ */
+kern_db_t *kern_app_db(kern_app_t *app);
+
+/**
+ * Get the application name.
+ */
+const char *kern_app_name(kern_app_t *app);
+
+/**
+ * Get the configured port.
+ */
+int kern_app_port(kern_app_t *app);
+
+/**
+ * Free the application and all associated resources.
+ */
+void kern_app_free(kern_app_t *app);
+
+/* ============================================================
  * File-System Router API (kern_fs_router.c)
  * ============================================================ */
 

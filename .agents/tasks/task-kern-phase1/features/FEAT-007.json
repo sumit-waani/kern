@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-007",
+  "type": "feat",
+  "description": "Implement the kern CLI with three core commands: kern new (project scaffolding), kern build (compile templates + assets + link binary), and kern dev (watch mode with auto-rebuild). Also implement asset hashing pipeline.",
+  "status": "in_progress",
+  "steps": [
+    "Create cli/main.c - CLI entry point with argument parsing. Dispatch to subcommands: new, build, dev, --version, --help. Use a simple hand-rolled arg parser (no external deps).",
+    "Create cli/cmd_new.c - 'kern new <name>' command. Create project directory with: kern.toml (with app name, port 3000), app.c (entry point with kern_app_new/kern_app_listen/kern_app_run), pages/index.c (home route), views/layouts/base.khtml (base layout), views/pages/home.khtml (home template), assets/css/app.css (empty), db/migrations/.gitkeep, .gitignore (build/, dist/, public/assets/, *.o). Print a nice summary of created files.",
+    "Create cli/cmd_build.c - 'kern build' command. Steps: 1) Read kern.toml for project config. 2) Scan views/ and compile all .khtml files to build/views/*.c using the template compiler. 3) Scan pages/ and generate build/_pages_registry.c using the fs router scanner. 4) Hash assets from assets/ into public/assets/<name>-<hash>.<ext>, generate build/_asset_manifest.c with URL mappings. 5) Invoke cc (gcc or clang, auto-detected) to compile all .c files and link against libkern, producing dist/<appname>.",
+    "Create cli/cmd_dev.c - 'kern dev' command. Steps: 1) Run kern build. 2) Start the built binary as a child process. 3) Watch for file changes in pages/, views/, assets/, models/, kern.toml using libuv fs_event. 4) On change: kill child, rebuild, restart. Print colored output showing what changed and rebuild status.",
+    "Create src/kern_asset.c - asset pipeline. kern_asset_hash(input_path, output_dir) computes SHA256 of file content, copies to output with hash in filename. kern_asset_manifest_generate(assets_dir, output_path) scans all assets and generates a C manifest file mapping original names to hashed URLs. kern_asset_url(name) runtime lookup.",
+    "Create tests/test_cli_new.c - test that kern new creates correct project structure",
+    "Create tests/test_asset.c - test asset hashing produces correct filenames and manifest",
+    "Add the kern CLI binary target to CMakeLists.txt, linking against libkern"
+  ],
+  "acceptance_criteria": [
+    "'kern new testapp' creates a valid project directory with all expected files",
+    "'kern build' in a scaffolded project compiles templates, generates registry, hashes assets, and produces a binary in dist/",
+    "'kern dev' starts the server and rebuilds on file changes",
+    "Asset hashing produces deterministic filenames based on content",
+    "The generated binary from kern build starts and serves HTTP requests",
+    "All tests pass"
+  ],
+  "verification": [
+    "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc) && ctest --output-on-failure",
+    "Test the full workflow: ./build/kern new /tmp/testapp && cd /tmp/testapp && /projects/sandbox/kern/build/kern build"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
