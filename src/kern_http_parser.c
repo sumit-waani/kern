@@ -4,6 +4,12 @@
  * Parses HTTP request line, headers, and body incrementally.
  * Data may arrive in chunks via TCP; the parser maintains state
  * across calls to kern_http_parser_feed().
+ *
+ * Security limits:
+ * - Maximum request line: 8192 bytes
+ * - Maximum total header section: 65536 bytes
+ * - Maximum body size: 10 MB (10485760 bytes)
+ * These limits prevent denial-of-service via memory exhaustion.
  */
 
 #include "kern.h"
@@ -11,6 +17,11 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Size limit constants */
+#define KERN_HTTP_MAX_REQUEST_LINE  8192
+#define KERN_HTTP_MAX_HEADERS      65536
+#define KERN_HTTP_MAX_BODY         10485760  /* 10 MB */
 
 /* Parser states */
 typedef enum {
@@ -33,7 +44,8 @@ struct kern_http_parser {
     kern_dict_t *headers;
     size_t content_length;
     bool has_content_length;
-    size_t headers_end_offset;  /* Offset where body starts in buf */
+    size_t headers_start_offset; /* Offset where headers section begins */
+    size_t headers_end_offset;   /* Current parse position / where body starts */
 };
 
 kern_http_parser_t *kern_http_parser_new(void) {
@@ -58,6 +70,7 @@ kern_http_parser_t *kern_http_parser_new(void) {
     parser->headers = NULL;
     parser->content_length = 0;
     parser->has_content_length = false;
+    parser->headers_start_offset = 0;
     parser->headers_end_offset = 0;
 
     return parser;
@@ -101,6 +114,7 @@ void kern_http_parser_reset(kern_http_parser_t *parser) {
     }
     parser->content_length = 0;
     parser->has_content_length = false;
+    parser->headers_start_offset = 0;
     parser->headers_end_offset = 0;
 }
 
@@ -282,7 +296,18 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
     if (parser->state == PARSER_STATE_REQUEST_LINE) {
         int crlf_pos = find_crlf(buf_data, buf_len, 0);
         if (crlf_pos < 0) {
+            /* No CRLF yet; check if accumulated data exceeds request line limit */
+            if (buf_len > KERN_HTTP_MAX_REQUEST_LINE) {
+                parser->state = PARSER_STATE_ERROR;
+                return KERN_HTTP_PARSE_ERROR;
+            }
             return KERN_HTTP_PARSE_NEED_MORE;
+        }
+
+        /* Enforce request line size limit */
+        if ((size_t)crlf_pos > KERN_HTTP_MAX_REQUEST_LINE) {
+            parser->state = PARSER_STATE_ERROR;
+            return KERN_HTTP_PARSE_ERROR;
         }
 
         if (crlf_pos == 0) {
@@ -302,6 +327,7 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
         }
 
         parser->state = PARSER_STATE_HEADERS;
+        parser->headers_start_offset = (size_t)crlf_pos + 2;
         parser->headers_end_offset = (size_t)crlf_pos + 2;
     }
 
@@ -310,7 +336,20 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
         while (1) {
             int crlf_pos = find_crlf(buf_data, buf_len, parser->headers_end_offset);
             if (crlf_pos < 0) {
+                /* No CRLF yet; check header section size limit */
+                size_t header_bytes = buf_len - parser->headers_start_offset;
+                if (header_bytes > KERN_HTTP_MAX_HEADERS) {
+                    parser->state = PARSER_STATE_ERROR;
+                    return KERN_HTTP_PARSE_ERROR;
+                }
                 return KERN_HTTP_PARSE_NEED_MORE;
+            }
+
+            /* Check total header section size limit */
+            size_t header_section_size = (size_t)crlf_pos + 2 - parser->headers_start_offset;
+            if (header_section_size > KERN_HTTP_MAX_HEADERS) {
+                parser->state = PARSER_STATE_ERROR;
+                return KERN_HTTP_PARSE_ERROR;
             }
 
             size_t line_start = parser->headers_end_offset;
@@ -321,6 +360,11 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
                 parser->headers_end_offset = (size_t)crlf_pos + 2;
 
                 if (parser->has_content_length && parser->content_length > 0) {
+                    /* Validate Content-Length against max body size */
+                    if (parser->content_length > KERN_HTTP_MAX_BODY) {
+                        parser->state = PARSER_STATE_ERROR;
+                        return KERN_HTTP_PARSE_ERROR;
+                    }
                     parser->state = PARSER_STATE_BODY;
                     break;
                 } else {
@@ -341,6 +385,13 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
     /* Parse body */
     if (parser->state == PARSER_STATE_BODY) {
         size_t body_received = buf_len - parser->headers_end_offset;
+
+        /* Enforce body size limit */
+        if (body_received > KERN_HTTP_MAX_BODY) {
+            parser->state = PARSER_STATE_ERROR;
+            return KERN_HTTP_PARSE_ERROR;
+        }
+
         if (body_received >= parser->content_length) {
             parser->state = PARSER_STATE_DONE;
             return KERN_HTTP_PARSE_DONE;

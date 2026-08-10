@@ -1,12 +1,13 @@
 /*
- * kern_auth.c - Basic password authentication
+ * kern_auth.c - Password authentication with PBKDF2-HMAC-SHA256
  *
- * Uses SHA-256 with random salt for password hashing.
- * Format: "hex_salt$hex_hash" where salt is 8 random bytes (16 hex chars)
- * and hash is SHA-256(salt_bytes + password).
+ * Uses PBKDF2 with HMAC-SHA256 as PRF, 100,000 iterations,
+ * 16-byte salt, and 32-byte derived key.
  *
- * Note: This is a simple implementation for v0.1.
- * Argon2id will replace this in v0.3.
+ * Output format: "pbkdf2-sha256:100000:hex_salt:hex_hash"
+ *
+ * Backward-compatible verify detects old "hex_salt$hex_hash" format
+ * (plain SHA-256) and verifies them correctly for migration purposes.
  */
 
 #include "kern.h"
@@ -129,7 +130,103 @@ static void sha256_final(sha256_ctx *ctx, uint8_t hash[32]) {
     }
 }
 
-/* ========== Password Hashing API ========== */
+/* ========== HMAC-SHA256 Implementation ========== */
+
+#define SHA256_BLOCK_SIZE 64
+#define SHA256_DIGEST_SIZE 32
+
+static void hmac_sha256(const uint8_t *key, size_t key_len,
+                        const uint8_t *data, size_t data_len,
+                        uint8_t out[32]) {
+    uint8_t k_pad[SHA256_BLOCK_SIZE];
+    uint8_t i_pad[SHA256_BLOCK_SIZE];
+    uint8_t o_pad[SHA256_BLOCK_SIZE];
+    sha256_ctx ctx;
+
+    /* If key is longer than block size, hash it first */
+    uint8_t key_hash[SHA256_DIGEST_SIZE];
+    if (key_len > SHA256_BLOCK_SIZE) {
+        sha256_init(&ctx);
+        sha256_update(&ctx, key, key_len);
+        sha256_final(&ctx, key_hash);
+        key = key_hash;
+        key_len = SHA256_DIGEST_SIZE;
+    }
+
+    /* Pad key to block size */
+    memset(k_pad, 0, SHA256_BLOCK_SIZE);
+    memcpy(k_pad, key, key_len);
+
+    /* Compute inner and outer padded keys */
+    for (int i = 0; i < SHA256_BLOCK_SIZE; i++) {
+        i_pad[i] = k_pad[i] ^ 0x36;
+        o_pad[i] = k_pad[i] ^ 0x5c;
+    }
+
+    /* Inner hash: H(i_pad || data) */
+    uint8_t inner_hash[SHA256_DIGEST_SIZE];
+    sha256_init(&ctx);
+    sha256_update(&ctx, i_pad, SHA256_BLOCK_SIZE);
+    sha256_update(&ctx, data, data_len);
+    sha256_final(&ctx, inner_hash);
+
+    /* Outer hash: H(o_pad || inner_hash) */
+    sha256_init(&ctx);
+    sha256_update(&ctx, o_pad, SHA256_BLOCK_SIZE);
+    sha256_update(&ctx, inner_hash, SHA256_DIGEST_SIZE);
+    sha256_final(&ctx, out);
+}
+
+/* ========== PBKDF2-HMAC-SHA256 Implementation ========== */
+
+#define KERN_PBKDF2_ITERATIONS 100000
+#define KERN_PBKDF2_SALT_LEN   16
+#define KERN_PBKDF2_KEY_LEN    32
+
+static void pbkdf2_hmac_sha256(const uint8_t *password, size_t password_len,
+                               const uint8_t *salt, size_t salt_len,
+                               uint32_t iterations,
+                               uint8_t *out, size_t out_len) {
+    uint32_t block_num = 1;
+    size_t offset = 0;
+
+    while (offset < out_len) {
+        /* U_1 = PRF(password, salt || INT_32_BE(block_num)) */
+        size_t msg_len = salt_len + 4;
+        uint8_t *msg = malloc(msg_len);
+        if (!msg) return;
+        memcpy(msg, salt, salt_len);
+        msg[salt_len]     = (uint8_t)(block_num >> 24);
+        msg[salt_len + 1] = (uint8_t)(block_num >> 16);
+        msg[salt_len + 2] = (uint8_t)(block_num >> 8);
+        msg[salt_len + 3] = (uint8_t)(block_num);
+
+        uint8_t u[SHA256_DIGEST_SIZE];
+        uint8_t t[SHA256_DIGEST_SIZE];
+
+        hmac_sha256(password, password_len, msg, msg_len, u);
+        free(msg);
+        memcpy(t, u, SHA256_DIGEST_SIZE);
+
+        /* U_2 ... U_c */
+        for (uint32_t i = 1; i < iterations; i++) {
+            hmac_sha256(password, password_len, u, SHA256_DIGEST_SIZE, u);
+            for (int j = 0; j < SHA256_DIGEST_SIZE; j++) {
+                t[j] ^= u[j];
+            }
+        }
+
+        /* Copy result bytes */
+        size_t to_copy = out_len - offset;
+        if (to_copy > SHA256_DIGEST_SIZE) to_copy = SHA256_DIGEST_SIZE;
+        memcpy(out + offset, t, to_copy);
+
+        offset += to_copy;
+        block_num++;
+    }
+}
+
+/* ========== Utility Functions ========== */
 
 static void bytes_to_hex(const uint8_t *bytes, size_t len, char *hex) {
     for (size_t i = 0; i < len; i++) {
@@ -146,48 +243,93 @@ static int hex_to_bytes(const char *hex, uint8_t *bytes, size_t byte_len) {
     return 0;
 }
 
+/* ========== Password Hashing API (PBKDF2) ========== */
+
 char *kern_password_hash(const char *password) {
     if (!password) return NULL;
 
-    /* Generate 8 random bytes for salt */
-    uint8_t salt[8];
+    /* Generate 16 random bytes for salt */
+    uint8_t salt[KERN_PBKDF2_SALT_LEN];
     FILE *f = fopen("/dev/urandom", "rb");
     if (!f) return NULL;
-    size_t r = fread(salt, 1, 8, f);
+    size_t r = fread(salt, 1, KERN_PBKDF2_SALT_LEN, f);
     fclose(f);
-    if (r != 8) return NULL;
+    if (r != KERN_PBKDF2_SALT_LEN) return NULL;
 
-    /* Compute SHA-256(salt + password) */
-    sha256_ctx ctx;
-    sha256_init(&ctx);
-    sha256_update(&ctx, salt, 8);
-    sha256_update(&ctx, (const uint8_t *)password, strlen(password));
+    /* Derive key using PBKDF2-HMAC-SHA256 */
+    uint8_t derived_key[KERN_PBKDF2_KEY_LEN];
+    pbkdf2_hmac_sha256((const uint8_t *)password, strlen(password),
+                       salt, KERN_PBKDF2_SALT_LEN,
+                       KERN_PBKDF2_ITERATIONS,
+                       derived_key, KERN_PBKDF2_KEY_LEN);
 
-    uint8_t hash[32];
-    sha256_final(&ctx, hash);
-
-    /* Format: "hex_salt$hex_hash" */
-    /* 16 hex chars for salt + 1 for $ + 64 hex chars for hash + 1 for null */
-    char *result = malloc(16 + 1 + 64 + 1);
+    /* Format: "pbkdf2-sha256:100000:hex_salt:hex_hash" */
+    /* "pbkdf2-sha256" (13) + ":" (1) + "100000" (6) + ":" (1)
+     * + hex_salt (32) + ":" (1) + hex_hash (64) + null (1) = 119 */
+    char *result = malloc(119);
     if (!result) return NULL;
 
-    bytes_to_hex(salt, 8, result);
-    result[16] = '$';
-    bytes_to_hex(hash, 32, result + 17);
-    result[81] = '\0';
+    char hex_salt[33];
+    char hex_hash[65];
+    bytes_to_hex(salt, KERN_PBKDF2_SALT_LEN, hex_salt);
+    hex_salt[32] = '\0';
+    bytes_to_hex(derived_key, KERN_PBKDF2_KEY_LEN, hex_hash);
+    hex_hash[64] = '\0';
+
+    snprintf(result, 119, "pbkdf2-sha256:%d:%s:%s",
+             KERN_PBKDF2_ITERATIONS, hex_salt, hex_hash);
 
     return result;
 }
 
-bool kern_password_verify(const char *password, const char *hash_str) {
-    if (!password || !hash_str) return false;
+/* Verify a PBKDF2-format hash */
+static bool verify_pbkdf2(const char *password, const char *hash_str) {
+    /* Parse "pbkdf2-sha256:iterations:hex_salt:hex_hash" */
+    /* Skip "pbkdf2-sha256:" prefix (14 chars) */
+    const char *p = hash_str + 14;
 
-    /* Parse "hex_salt$hex_hash" */
+    /* Parse iterations */
+    char *endptr;
+    unsigned long iterations = strtoul(p, &endptr, 10);
+    if (*endptr != ':') return false;
+    p = endptr + 1;
+
+    /* Parse hex salt (32 hex chars = 16 bytes) */
+    if (strlen(p) < 32) return false;
+    uint8_t salt[KERN_PBKDF2_SALT_LEN];
+    if (hex_to_bytes(p, salt, KERN_PBKDF2_SALT_LEN) != 0) return false;
+    p += 32;
+    if (*p != ':') return false;
+    p++;
+
+    /* Parse hex hash (64 hex chars = 32 bytes) */
+    if (strlen(p) < 64) return false;
+    uint8_t expected[KERN_PBKDF2_KEY_LEN];
+    if (hex_to_bytes(p, expected, KERN_PBKDF2_KEY_LEN) != 0) return false;
+
+    /* Derive key with same params */
+    uint8_t computed[KERN_PBKDF2_KEY_LEN];
+    pbkdf2_hmac_sha256((const uint8_t *)password, strlen(password),
+                       salt, KERN_PBKDF2_SALT_LEN,
+                       (uint32_t)iterations,
+                       computed, KERN_PBKDF2_KEY_LEN);
+
+    /* Constant-time comparison */
+    uint8_t diff = 0;
+    for (int i = 0; i < KERN_PBKDF2_KEY_LEN; i++) {
+        diff |= computed[i] ^ expected[i];
+    }
+    return diff == 0;
+}
+
+/* Verify an old-format hash (SHA-256 with 8-byte salt) */
+static bool verify_legacy_sha256(const char *password, const char *hash_str) {
+    /* Old format: "hex_salt$hex_hash" (16 + 1 + 64 = 81 chars) */
     size_t len = strlen(hash_str);
-    if (len != 81) return false;  /* 16 + 1 + 64 */
+    if (len != 81) return false;
     if (hash_str[16] != '$') return false;
 
-    /* Decode salt */
+    /* Decode salt (8 bytes from 16 hex chars) */
     uint8_t salt[8];
     if (hex_to_bytes(hash_str, salt, 8) != 0) return false;
 
@@ -210,4 +352,16 @@ bool kern_password_verify(const char *password, const char *hash_str) {
         diff |= computed[i] ^ expected[i];
     }
     return diff == 0;
+}
+
+bool kern_password_verify(const char *password, const char *hash_str) {
+    if (!password || !hash_str) return false;
+
+    /* Detect format by prefix */
+    if (strncmp(hash_str, "pbkdf2-sha256:", 14) == 0) {
+        return verify_pbkdf2(password, hash_str);
+    }
+
+    /* Fall back to legacy format (hex_salt$hex_hash) */
+    return verify_legacy_sha256(password, hash_str);
 }

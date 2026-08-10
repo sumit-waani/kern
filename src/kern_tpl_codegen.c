@@ -3,6 +3,30 @@
  *
  * Walks the template AST and emits C source code that, when compiled
  * and called, writes HTML into a kern_buf_t buffer.
+ *
+ * =====================================================================
+ * SECURITY NOTICE: TRUSTED INPUT ONLY
+ * =====================================================================
+ *
+ * This code generator emits interpolation expressions (#{expr}) and
+ * statement blocks (- if/for/etc) as raw C source code. The generated
+ * output is compiled and linked into the application binary.
+ *
+ * .khtml template files are TRUSTED INPUT. They have the same privilege
+ * level as application source code. Any C expression in a template will
+ * be executed with full application permissions at request time.
+ *
+ * DO NOT allow user-uploadable .khtml templates. If the framework ever
+ * supports dynamic template loading (CMS themes, plugin templates,
+ * user-generated content), those templates MUST be sandboxed or use a
+ * different, restricted template language. Allowing untrusted parties
+ * to provide .khtml files is equivalent to allowing arbitrary code
+ * execution within the application process.
+ *
+ * This is by design: compile-time templates give maximum performance
+ * and full access to application types and functions. The security
+ * boundary is at the template file level, not at the expression level.
+ * =====================================================================
  */
 
 #include "kern.h"

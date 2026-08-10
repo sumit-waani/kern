@@ -164,8 +164,85 @@ TEST(test_session_cookie_header) {
     ASSERT(strstr(cookie, "HttpOnly") != NULL);
     ASSERT(strstr(cookie, "SameSite=Lax") != NULL);
     ASSERT(strstr(cookie, "Path=/") != NULL);
+    ASSERT(strstr(cookie, "Secure") != NULL);
 
     kern_req_free(req);
+}
+
+TEST(test_session_created_at) {
+    kern_session_init();
+
+    kern_req_t *req = make_req_with_cookie(NULL);
+    kern_session_t *session = kern_session_start(req);
+    ASSERT(session != NULL);
+
+    time_t created = kern_session_created_at(session);
+    time_t now = time(NULL);
+    /* Should be within a second of now */
+    ASSERT(now - created < 2);
+    ASSERT(created > 0);
+
+    kern_req_free(req);
+}
+
+TEST(test_session_max_cap) {
+    kern_session_init();
+    /* Set max to 3 sessions */
+    kern_session_set_max(3);
+
+    kern_req_t *reqs[5];
+    kern_session_t *sessions[5];
+    char ids[5][128];
+
+    /* Create 3 sessions (at capacity) */
+    for (int i = 0; i < 3; i++) {
+        reqs[i] = make_req_with_cookie(NULL);
+        sessions[i] = kern_session_start(reqs[i]);
+        ASSERT(sessions[i] != NULL);
+        snprintf(ids[i], sizeof(ids[i]), "%s", kern_session_id(sessions[i]));
+    }
+
+    /* Create 2 more sessions - should evict oldest */
+    for (int i = 3; i < 5; i++) {
+        reqs[i] = make_req_with_cookie(NULL);
+        sessions[i] = kern_session_start(reqs[i]);
+        ASSERT(sessions[i] != NULL);
+        snprintf(ids[i], sizeof(ids[i]), "%s", kern_session_id(sessions[i]));
+    }
+
+    /* The newest sessions should still be valid */
+    char cookie[256];
+    snprintf(cookie, sizeof(cookie), "kern_session=%s", ids[4]);
+    kern_req_t *check_req = make_req_with_cookie(cookie);
+    kern_session_t *check_session = kern_session_start(check_req);
+    ASSERT(check_session != NULL);
+    ASSERT_EQ_STR(kern_session_id(check_session), ids[4]);
+    kern_req_free(check_req);
+
+    for (int i = 0; i < 5; i++) {
+        kern_req_free(reqs[i]);
+    }
+}
+
+TEST(test_session_ttl_config) {
+    kern_session_init();
+    /* Set TTL to a very short time - just verify it does not crash */
+    kern_session_set_ttl(1);
+    kern_session_set_max(10000);
+
+    kern_req_t *req = make_req_with_cookie(NULL);
+    kern_session_t *session = kern_session_start(req);
+    ASSERT(session != NULL);
+
+    /* Session should be valid immediately */
+    const char *id = kern_session_id(session);
+    ASSERT(id != NULL);
+    ASSERT(strlen(id) == 64);
+
+    kern_req_free(req);
+
+    /* Reset to defaults for other tests */
+    kern_session_set_ttl(604800);
 }
 
 int main(void) {
@@ -176,6 +253,9 @@ int main(void) {
     RUN_TEST(test_session_persist);
     RUN_TEST(test_session_destroy);
     RUN_TEST(test_session_cookie_header);
+    RUN_TEST(test_session_created_at);
+    RUN_TEST(test_session_max_cap);
+    RUN_TEST(test_session_ttl_config);
 
     printf("\n  %d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

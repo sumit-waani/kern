@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -1124,8 +1125,21 @@ void kern_config_free(kern_config_t *cfg);
 void kern_session_init(void);
 
 /**
+ * Set the session TTL (time-to-live) in seconds.
+ * Default is 604800 (7 days). Sessions older than this are evicted.
+ */
+void kern_session_set_ttl(uint32_t ttl_seconds);
+
+/**
+ * Set the maximum number of concurrent sessions.
+ * Default is 10000. When exceeded, the oldest session is evicted.
+ */
+void kern_session_set_max(uint32_t max_sessions);
+
+/**
  * Start or resume a session from the request.
  * Looks for "kern_session" cookie; creates a new session if not found.
+ * Expired sessions are evicted on each call.
  */
 kern_session_t *kern_session_start(kern_req_t *req);
 
@@ -1151,23 +1165,32 @@ const char *kern_session_id(const kern_session_t *session);
 
 /**
  * Get the Set-Cookie header value for this session.
+ * Includes HttpOnly, SameSite=Lax, and Secure flags.
  * Returns a static buffer (not thread-safe for concurrent use).
  */
 const char *kern_session_cookie(const kern_session_t *session);
+
+/**
+ * Get the session creation timestamp.
+ */
+time_t kern_session_created_at(const kern_session_t *session);
 
 /* ============================================================
  * Password Auth API (kern_auth.c)
  * ============================================================ */
 
 /**
- * Hash a password using SHA-256 with a random salt.
- * Returns allocated string in format "hex_salt$hex_hash".
+ * Hash a password using PBKDF2-HMAC-SHA256.
+ * Uses 100,000 iterations, 16-byte salt, 32-byte derived key.
+ * Returns allocated string in format "pbkdf2-sha256:100000:hex_salt:hex_hash".
  * Caller must free the returned string.
  */
 char *kern_password_hash(const char *password);
 
 /**
  * Verify a password against a stored hash string.
+ * Supports both the new PBKDF2 format ("pbkdf2-sha256:...")
+ * and the legacy format ("hex_salt$hex_hash") for migration.
  * Returns true if the password matches.
  */
 bool kern_password_verify(const char *password, const char *hash_str);

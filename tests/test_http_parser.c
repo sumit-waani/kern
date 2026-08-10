@@ -225,6 +225,124 @@ TEST(test_parse_body_incremental) {
     kern_http_parser_free(parser);
 }
 
+/* ============================================================
+ * Size limit tests
+ * ============================================================ */
+
+TEST(test_oversized_request_line) {
+    kern_http_parser_t *parser = kern_http_parser_new();
+    ASSERT(parser != NULL);
+
+    /* Create a request line longer than 8192 bytes */
+    kern_buf_t *buf = kern_buf_new(16384);
+    kern_buf_writes(buf, "GET /");
+    /* Fill with 'a' to exceed 8192 byte limit */
+    char fill[8200];
+    memset(fill, 'a', 8199);
+    fill[8199] = '\0';
+    kern_buf_writes(buf, fill);
+    kern_buf_writes(buf, " HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    int rc = kern_http_parser_feed(parser, kern_buf_data(buf), kern_buf_len(buf));
+    ASSERT_EQ_INT(rc, KERN_HTTP_PARSE_ERROR);
+    ASSERT(kern_http_parser_error(parser));
+
+    kern_buf_free(buf);
+    kern_http_parser_free(parser);
+}
+
+TEST(test_oversized_headers) {
+    kern_http_parser_t *parser = kern_http_parser_new();
+    ASSERT(parser != NULL);
+
+    /* Create headers that exceed 65536 bytes total */
+    kern_buf_t *buf = kern_buf_new(128000);
+    kern_buf_writes(buf, "GET / HTTP/1.1\r\n");
+
+    /* Add many headers to exceed 65KB */
+    char header_line[256];
+    for (int i = 0; i < 500; i++) {
+        /* Each header line is about 140 bytes: "X-Header-NNNN: <128 chars value>\r\n" */
+        char value[129];
+        memset(value, 'v', 128);
+        value[128] = '\0';
+        snprintf(header_line, sizeof(header_line), "X-Header-%04d: %s\r\n", i, value);
+        kern_buf_writes(buf, header_line);
+    }
+    kern_buf_writes(buf, "\r\n");
+
+    int rc = kern_http_parser_feed(parser, kern_buf_data(buf), kern_buf_len(buf));
+    ASSERT_EQ_INT(rc, KERN_HTTP_PARSE_ERROR);
+    ASSERT(kern_http_parser_error(parser));
+
+    kern_buf_free(buf);
+    kern_http_parser_free(parser);
+}
+
+TEST(test_oversized_content_length) {
+    kern_http_parser_t *parser = kern_http_parser_new();
+    ASSERT(parser != NULL);
+
+    /* Content-Length exceeding 10MB should be rejected */
+    const char *req =
+        "POST /upload HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "Content-Length: 20000000\r\n"
+        "\r\n";
+
+    int rc = kern_http_parser_feed(parser, req, strlen(req));
+    ASSERT_EQ_INT(rc, KERN_HTTP_PARSE_ERROR);
+    ASSERT(kern_http_parser_error(parser));
+
+    kern_http_parser_free(parser);
+}
+
+TEST(test_valid_body_within_limits) {
+    kern_http_parser_t *parser = kern_http_parser_new();
+    ASSERT(parser != NULL);
+
+    /* A small body well within limits should work fine */
+    const char *req =
+        "POST /data HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "Content-Length: 5\r\n"
+        "\r\n"
+        "hello";
+
+    int rc = kern_http_parser_feed(parser, req, strlen(req));
+    ASSERT_EQ_INT(rc, KERN_HTTP_PARSE_DONE);
+    ASSERT(kern_http_parser_done(parser));
+
+    kern_str_t body = kern_http_parser_body(parser);
+    ASSERT_EQ_INT((int)body.len, 5);
+    ASSERT(memcmp(body.data, "hello", 5) == 0);
+
+    kern_http_parser_free(parser);
+}
+
+TEST(test_request_line_at_limit) {
+    kern_http_parser_t *parser = kern_http_parser_new();
+    ASSERT(parser != NULL);
+
+    /* Create a request line at exactly the limit (should pass) */
+    /* "GET /" + path + " HTTP/1.1\r\n" = 5 + path_len + 11 */
+    /* We want total line < 8192. Use path of 8170 chars: 5 + 8170 + 9 = 8184 */
+    kern_buf_t *buf = kern_buf_new(16384);
+    kern_buf_writes(buf, "GET /");
+    char path[8171];
+    memset(path, 'x', 8170);
+    path[8170] = '\0';
+    kern_buf_writes(buf, path);
+    kern_buf_writes(buf, " HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    int rc = kern_http_parser_feed(parser, kern_buf_data(buf), kern_buf_len(buf));
+    ASSERT_EQ_INT(rc, KERN_HTTP_PARSE_DONE);
+    ASSERT(kern_http_parser_done(parser));
+
+    kern_buf_free(buf);
+    kern_http_parser_free(parser);
+}
+
 int main(void) {
     printf("test_http_parser:\n");
 
@@ -237,6 +355,11 @@ int main(void) {
     RUN_TEST(test_parse_incremental);
     RUN_TEST(test_parse_all_methods);
     RUN_TEST(test_parse_body_incremental);
+    RUN_TEST(test_oversized_request_line);
+    RUN_TEST(test_oversized_headers);
+    RUN_TEST(test_oversized_content_length);
+    RUN_TEST(test_valid_body_within_limits);
+    RUN_TEST(test_request_line_at_limit);
 
     printf("\n  %d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;
