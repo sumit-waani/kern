@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Implement the radix tree router with path parameter support, method-based dispatch, middleware chain, and 404/405 handling. Then implement the file-system routing scanner that reads pages/ directory and generates route registry code.",
+  "status": "completed",
+  "steps": [
+    "Create src/kern_router.c - radix tree (compressed trie) router. kern_router_new(), kern_router_add(router, method, path, handler), kern_router_match(router, method, path, params_out). Support: static segments (/posts), parameterized segments (/:id captured into params), wildcard segments (/*path). Return 404 for no match, 405 for path match but wrong method.",
+    "Create src/kern_middleware.c - middleware chain support. kern_middleware_t is a function pointer (req, next) -> response. kern_router_use(router, path_prefix, middleware_fn) applies middleware to all routes under a prefix. Middleware runs in registration order before the handler.",
+    "Create src/kern_fs_router.c - file-system routing scanner. Given a pages/ directory path, scan recursively and generate route entries. Map: index.c -> /, about.c -> /about, posts/index.c -> /posts, posts/[id]/index.c -> /posts/:id, etc. Parse KERN_GET/KERN_POST/KERN_PAGE macros from .c files to determine methods. Generate a C source file (build/_pages_registry.c) with kern_register_all_routes() function.",
+    "Create tests/test_router.c - test route matching: exact paths, parameterized paths, wildcards, method dispatch, 404/405, overlapping routes priority",
+    "Create tests/test_fs_router.c - test the scanner with a mock pages/ directory structure, verify correct route table generation",
+    "Integrate router with HTTP server: after parsing request, call kern_router_match, invoke handler or return 404/405"
+  ],
+  "acceptance_criteria": [
+    "Router correctly matches static, parameterized, and wildcard routes",
+    "Path parameters are captured and accessible via kern_param(req, name)",
+    "405 returned when path exists but method doesn't match",
+    "404 returned for unknown paths",
+    "File-system scanner generates correct route registry from a pages/ directory",
+    "Middleware chain executes in correct order",
+    "All tests pass"
+  ],
+  "verification": [
+    "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc) && ctest --output-on-failure"
+  ],
+  "blocked_reason": null,
+  "findings": "Implemented all components successfully. Used dynamic arrays for node children instead of fixed-size arrays to support many routes at the same level. The format-truncation warning in kern_fs_router.c was resolved by increasing KERN_FS_MAX_PATH to 2048. The router match uses recursion for segment-by-segment matching. Thread-local storage (__thread) is used for the middleware chain dispatch mechanism."
+}

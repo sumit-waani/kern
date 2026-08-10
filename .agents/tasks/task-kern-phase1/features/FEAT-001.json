@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-001",
+  "type": "docs",
+  "description": "Create /docs directory with proper documentation and phased implementation plan. Includes architecture overview, v0.1 scope, API reference skeleton, getting started guide, and the phased roadmap.",
+  "status": "completed",
+  "steps": [
+    "Create /docs/README.md as the documentation index linking to all other docs",
+    "Create /docs/architecture.md covering: high-level architecture (libkern + kern CLI + kernd), runtime model (reactor + worker pool + fibers), build pipeline, and the three deliverables",
+    "Create /docs/phase1-plan.md with detailed implementation plan for v0.1: HTTP server, radix router, file-system routing, .khtml compiler, SQLite driver, query builder, migrations, sessions, basic auth, asset hashing, kern new/dev/build. Include milestones, dependencies between components, and acceptance criteria.",
+    "Create /docs/phases-overview.md covering all phases v0.1 through v1.0 at summary level, explaining what each phase delivers and why they are ordered that way",
+    "Create /docs/api-reference.md with the public API surface for v0.1: kern.h types, request/response API, router API, template rendering, DB API, session API, config API",
+    "Create /docs/getting-started.md showing how to use kern new, kern dev, kern build once v0.1 is complete",
+    "Create /docs/project-layout.md documenting the convention-based folder structure for kern apps (pages/, views/, models/, queries/, mutations/, etc.)",
+    "Create /docs/khtml-syntax.md documenting the .khtml template language: Pug-derived syntax, interpolation, loops, conditionals, includes, extends, blocks"
+  ],
+  "acceptance_criteria": [
+    "/docs/ directory exists with at least 7 markdown files",
+    "docs/phase1-plan.md contains a detailed breakdown of v0.1 implementation tasks",
+    "docs/phases-overview.md covers phases v0.1 through v1.0",
+    "All docs are well-structured markdown with proper headings and code examples from the design doc"
+  ],
+  "verification": [
+    "ls /docs/ shows all expected files",
+    "Each file is valid markdown with meaningful content (not stubs)"
+  ],
+  "blocked_reason": null,
+  "findings": "All 8 documentation files created successfully. Total content: ~2800 lines of well-structured markdown. phase1-plan.md has 11 milestones with dependency graph. phases-overview.md covers v0.1 through v1.0 with rationale for ordering. All docs include code examples from the design doc. This is a docs-only feature so no build/test verification was needed."
+}
