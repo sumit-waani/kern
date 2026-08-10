@@ -53,7 +53,7 @@ kern_req_t *kern_req_new(kern_http_parser_t *parser) {
 
     req->headers = kern_http_parser_headers(parser);
     req->body = kern_http_parser_body(parser);
-    req->params = kern_dict_new();
+    req->params = kern_dict_new_with_free(free);
     req->query_params = NULL;
     req->form_params = NULL;
 
@@ -128,7 +128,7 @@ static size_t url_decode_inplace(char *str, size_t len) {
 
 /* Parse URL-encoded key=value pairs into a dict */
 static kern_dict_t *parse_url_encoded(const char *data, size_t len) {
-    kern_dict_t *dict = kern_dict_new();
+    kern_dict_t *dict = kern_dict_new_with_free(free);
     if (!dict) return NULL;
 
     size_t i = 0;
@@ -180,7 +180,7 @@ static kern_dict_t *parse_url_encoded(const char *data, size_t len) {
 static void ensure_query_params(kern_req_t *req) {
     if (req->query_params) return;
     if (!req->query_string || req->query_string[0] == '\0') {
-        req->query_params = kern_dict_new();
+        req->query_params = kern_dict_new_with_free(free);
         return;
     }
     req->query_params = parse_url_encoded(req->query_string, strlen(req->query_string));
@@ -192,14 +192,14 @@ static void ensure_form_params(kern_req_t *req) {
     /* Only parse if content-type is application/x-www-form-urlencoded */
     const char *ct = kern_header(req, "content-type");
     if (!ct || strstr(ct, "application/x-www-form-urlencoded") == NULL) {
-        req->form_params = kern_dict_new();
+        req->form_params = kern_dict_new_with_free(free);
         return;
     }
 
     if (req->body.data && req->body.len > 0) {
         req->form_params = parse_url_encoded(req->body.data, req->body.len);
     } else {
-        req->form_params = kern_dict_new();
+        req->form_params = kern_dict_new_with_free(free);
     }
 }
 

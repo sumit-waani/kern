@@ -214,6 +214,85 @@ TEST(test_dict_null_safety) {
     kern_dict_iter(NULL, iter_callback, NULL); /* Should not crash */
 }
 
+/* Track how many times free_fn is called */
+static int free_fn_call_count;
+static void counting_free(void *ptr) {
+    free_fn_call_count++;
+    free(ptr);
+}
+
+TEST(test_dict_with_free_fn) {
+    kern_dict_t *dict = kern_dict_new_with_free(counting_free);
+    ASSERT(dict != NULL);
+
+    /* Insert heap-allocated values */
+    char *v1 = strdup("value1");
+    char *v2 = strdup("value2");
+    char *v3 = strdup("value3");
+
+    kern_dict_set(dict, "key1", v1);
+    kern_dict_set(dict, "key2", v2);
+    kern_dict_set(dict, "key3", v3);
+    ASSERT_EQ_INT(kern_dict_count(dict), 3);
+
+    /* free_fn should be called on all values when dict is freed */
+    free_fn_call_count = 0;
+    kern_dict_free(dict);
+    ASSERT_EQ_INT(free_fn_call_count, 3);
+}
+
+TEST(test_dict_with_free_fn_overwrite) {
+    kern_dict_t *dict = kern_dict_new_with_free(counting_free);
+    ASSERT(dict != NULL);
+
+    char *v1 = strdup("first");
+    char *v2 = strdup("second");
+
+    kern_dict_set(dict, "key", v1);
+    free_fn_call_count = 0;
+
+    /* Overwriting should free the old value */
+    kern_dict_set(dict, "key", v2);
+    ASSERT_EQ_INT(free_fn_call_count, 1);
+
+    /* Verify new value is stored */
+    ASSERT_EQ_STR((const char *)kern_dict_get(dict, "key"), "second");
+
+    free_fn_call_count = 0;
+    kern_dict_free(dict);
+    ASSERT_EQ_INT(free_fn_call_count, 1); /* Only v2 remains */
+}
+
+TEST(test_dict_with_free_fn_del) {
+    kern_dict_t *dict = kern_dict_new_with_free(counting_free);
+    ASSERT(dict != NULL);
+
+    char *v1 = strdup("value1");
+    kern_dict_set(dict, "key1", v1);
+
+    free_fn_call_count = 0;
+    bool deleted = kern_dict_del(dict, "key1");
+    ASSERT(deleted);
+    ASSERT_EQ_INT(free_fn_call_count, 1);
+
+    ASSERT_EQ_INT(kern_dict_count(dict), 0);
+    kern_dict_free(dict);
+}
+
+TEST(test_dict_without_free_fn_compat) {
+    /* Ensure kern_dict_new() still works without freeing values */
+    kern_dict_t *dict = kern_dict_new();
+    ASSERT(dict != NULL);
+
+    int val = 42;
+    kern_dict_set(dict, "key", &val);
+    ASSERT(kern_dict_get(dict, "key") == &val);
+
+    /* This should not crash - values are not freed */
+    kern_dict_free(dict);
+    /* val is a stack variable, so no crash proves values are not freed */
+}
+
 int main(void) {
     printf("test_dict:\n");
 
@@ -226,6 +305,10 @@ int main(void) {
     RUN_TEST(test_dict_many_entries);
     RUN_TEST(test_dict_iter);
     RUN_TEST(test_dict_null_safety);
+    RUN_TEST(test_dict_with_free_fn);
+    RUN_TEST(test_dict_with_free_fn_overwrite);
+    RUN_TEST(test_dict_with_free_fn_del);
+    RUN_TEST(test_dict_without_free_fn_compat);
 
     printf("\n  %d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

@@ -295,7 +295,7 @@ int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t l
             return KERN_HTTP_PARSE_ERROR;
         }
 
-        parser->headers = kern_dict_new();
+        parser->headers = kern_dict_new_with_free(free);
         if (!parser->headers) {
             parser->state = PARSER_STATE_ERROR;
             return KERN_HTTP_PARSE_ERROR;

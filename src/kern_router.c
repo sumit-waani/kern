@@ -449,14 +449,14 @@ static kern_handler_fn match_tree(kern_route_node_t *root, const char *path, ker
 
 /* Check if any method tree has a node for this path (for 405 detection) */
 static bool path_exists_any_method(kern_router_t *router, const char *path) {
-    kern_dict_t *tmp = kern_dict_new();
+    kern_dict_t *tmp = kern_dict_new_with_free(free);
     if (!tmp) return false;
 
     for (int i = 0; i < KERN_ROUTER_NUM_METHODS; i++) {
         kern_handler_fn h = match_tree(router->trees[i], path, tmp);
-        /* Clean up any params that were set */
+        /* Clean up any params that were set (free_fn handles value cleanup) */
         kern_dict_free(tmp);
-        tmp = kern_dict_new();
+        tmp = kern_dict_new_with_free(free);
         if (!tmp) return false;
         if (h) {
             kern_dict_free(tmp);

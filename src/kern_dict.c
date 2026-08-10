@@ -21,6 +21,7 @@ struct kern_dict {
     kern_dict_entry_t *entries;
     size_t cap;
     size_t count;
+    kern_dict_free_fn free_fn;  /* Optional value destructor (NULL = no-op) */
 };
 
 /* FNV-1a hash */
@@ -76,6 +77,15 @@ kern_dict_t *kern_dict_new(void) {
 
     dict->cap = KERN_DICT_INITIAL_CAP;
     dict->count = 0;
+    dict->free_fn = NULL;
+    return dict;
+}
+
+kern_dict_t *kern_dict_new_with_free(kern_dict_free_fn free_fn) {
+    kern_dict_t *dict = kern_dict_new();
+    if (dict) {
+        dict->free_fn = free_fn;
+    }
     return dict;
 }
 
@@ -102,6 +112,9 @@ int kern_dict_set(kern_dict_t *dict, const char *key, void *value) {
             }
         } else if (strcmp(dict->entries[idx].key, key) == 0) {
             /* Key already exists, update value */
+            if (dict->free_fn && dict->entries[idx].value) {
+                dict->free_fn(dict->entries[idx].value);
+            }
             dict->entries[idx].value = value;
             return 0;
         }
@@ -166,6 +179,9 @@ bool kern_dict_del(kern_dict_t *dict, const char *key) {
 
     free(entry->key);
     entry->key = NULL;
+    if (dict->free_fn && entry->value) {
+        dict->free_fn(entry->value);
+    }
     entry->value = NULL;
     entry->tombstone = true;
     dict->count--;
@@ -187,6 +203,9 @@ void kern_dict_free(kern_dict_t *dict) {
     for (size_t i = 0; i < dict->cap; i++) {
         if (dict->entries[i].occupied && !dict->entries[i].tombstone) {
             free(dict->entries[i].key);
+            if (dict->free_fn && dict->entries[i].value) {
+                dict->free_fn(dict->entries[i].value);
+            }
         }
     }
 

@@ -228,7 +228,7 @@ static void process_request(kern_conn_t *conn) {
     if (req) {
         if (server->router) {
             /* Router-based dispatch */
-            kern_dict_t *params = kern_dict_new();
+            kern_dict_t *params = kern_dict_new_with_free(free);
             kern_route_result_t result = kern_router_match(
                 server->router, kern_req_method(req), kern_req_path(req), params);
 

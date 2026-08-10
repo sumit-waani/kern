@@ -253,9 +253,21 @@ int kern_url_decode(kern_str_t str, kern_buf_t *buf);
 typedef bool (*kern_dict_iter_fn)(const char *key, void *value, void *userdata);
 
 /**
+ * Callback type for freeing dictionary values on destruction.
+ */
+typedef void (*kern_dict_free_fn)(void *value);
+
+/**
  * Create a new empty dictionary.
  */
 kern_dict_t *kern_dict_new(void);
+
+/**
+ * Create a new empty dictionary with a value destructor callback.
+ * When set, the free_fn is called on each value during kern_dict_free,
+ * kern_dict_del, and when kern_dict_set replaces an existing value.
+ */
+kern_dict_t *kern_dict_new_with_free(kern_dict_free_fn free_fn);
 
 /**
  * Set a key-value pair. The key is copied internally.

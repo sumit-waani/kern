@@ -114,7 +114,7 @@ kern_session_t *kern_session_start(kern_req_t *req) {
         free(session);
         return NULL;
     }
-    session->data = kern_dict_new();
+    session->data = kern_dict_new_with_free(free);
 
     /* Store in global store */
     kern_dict_set(g_session_store, session->id, session);
