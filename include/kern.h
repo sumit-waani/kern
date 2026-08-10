@@ -60,19 +60,55 @@ typedef enum {
     KERN_METHOD_OPTIONS
 } kern_method_t;
 
-/* Forward declarations for request/response/app/server/parser structs */
+/* Forward declarations for request/response/app/server/parser/router structs */
 typedef struct kern_req kern_req_t;
 typedef struct kern_res kern_res_t;
 typedef struct kern_app kern_app_t;
 typedef struct kern_response kern_response_t;
 typedef struct kern_server kern_server_t;
 typedef struct kern_http_parser kern_http_parser_t;
+typedef struct kern_router kern_router_t;
 
 /**
  * kern_handler_fn - HTTP request handler callback.
  * Receives a request, returns a response. The caller frees the response.
  */
 typedef kern_response_t *(*kern_handler_fn)(kern_req_t *req);
+
+/**
+ * kern_middleware_fn - Middleware function type.
+ * Receives a request and a "next" handler to call.
+ * Can short-circuit by returning a response without calling next.
+ */
+typedef kern_response_t *(*kern_middleware_fn)(kern_req_t *req, kern_handler_fn next);
+
+/**
+ * kern_route_status_t - Result status from route matching.
+ */
+typedef enum {
+    KERN_ROUTE_OK = 0,
+    KERN_ROUTE_NOT_FOUND = 1,
+    KERN_ROUTE_METHOD_NOT_ALLOWED = 2
+} kern_route_status_t;
+
+/**
+ * kern_route_result_t - Result from kern_router_match.
+ */
+typedef struct {
+    kern_handler_fn handler;
+    kern_route_status_t status;
+} kern_route_result_t;
+
+/**
+ * kern_fs_entry_t - A single file-system route entry.
+ */
+typedef struct {
+    char *route_path;
+    char *file_path;
+    char *methods[8];
+    int method_count;
+    char *_func_name;  /* Internal: used during code generation */
+} kern_fs_entry_t;
 
 /* HTTP parser return codes */
 #define KERN_HTTP_PARSE_NEED_MORE  0
@@ -502,6 +538,96 @@ int kern_server_port(kern_server_t *server);
  *   - Directory traversal prevention
  */
 kern_response_t *kern_static_handler(kern_req_t *req, const char *public_dir);
+
+/* ============================================================
+ * Router API (kern_router.c)
+ * ============================================================ */
+
+/**
+ * Create a new router instance.
+ */
+kern_router_t *kern_router_new(void);
+
+/**
+ * Free the router and all registered routes.
+ */
+void kern_router_free(kern_router_t *router);
+
+/**
+ * Add a route with a string method.
+ * Path supports: static ("/posts"), parameterized ("/:id"), wildcard (star-path).
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_router_add(kern_router_t *router, const char *method, const char *path,
+                    kern_handler_fn handler);
+
+/**
+ * Add a route with a kern_method_t enum value.
+ */
+int kern_router_add_method(kern_router_t *router, kern_method_t method, const char *path,
+                           kern_handler_fn handler);
+
+/**
+ * Match a request path against registered routes.
+ * Fills params dict with captured path parameters.
+ * Returns result with handler and status (OK, NOT_FOUND, METHOD_NOT_ALLOWED).
+ */
+kern_route_result_t kern_router_match(kern_router_t *router, kern_method_t method,
+                                      const char *path, kern_dict_t *params);
+
+/**
+ * Register middleware for all routes under a given prefix.
+ * Middleware runs in registration order before the final handler.
+ */
+int kern_router_use(kern_router_t *router, const char *prefix, kern_middleware_fn fn);
+
+/**
+ * Dispatch a request through the middleware chain and then to the handler.
+ */
+kern_response_t *kern_router_dispatch(kern_router_t *router, kern_req_t *req,
+                                      kern_handler_fn handler);
+
+/* ============================================================
+ * Middleware Utilities (kern_middleware.c)
+ * ============================================================ */
+
+/**
+ * Built-in logging middleware. Logs method and path to stderr.
+ */
+kern_response_t *kern_middleware_logger(kern_req_t *req, kern_handler_fn next);
+
+/* ============================================================
+ * File-System Router API (kern_fs_router.c)
+ * ============================================================ */
+
+/**
+ * Scan a pages directory and generate route entries.
+ * Returns an array of entries (caller must free with kern_fs_entries_free).
+ * Sets *out_count to the number of entries found.
+ */
+kern_fs_entry_t *kern_fs_scan(const char *pages_dir, int *out_count);
+
+/**
+ * Free the array of FS route entries.
+ */
+void kern_fs_entries_free(kern_fs_entry_t *entries, int count);
+
+/**
+ * Generate a C source file with route registration code.
+ * Writes to output_path. Returns 0 on success, -1 on failure.
+ */
+int kern_fs_generate_registry(kern_fs_entry_t *entries, int count, const char *output_path);
+
+/* ============================================================
+ * Server-Router Integration (kern_http_server.c)
+ * ============================================================ */
+
+/**
+ * Set the router for the server. When set, the server uses router-based
+ * dispatch instead of the simple handler. The simple handler (set_handler)
+ * becomes a fallback if no route matches.
+ */
+void kern_server_set_router(kern_server_t *server, kern_router_t *router);
 
 #ifdef __cplusplus
 }

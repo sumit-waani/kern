@@ -38,6 +38,7 @@ struct kern_server {
     uv_tcp_t tcp;
     uv_async_t stop_async;
     kern_handler_fn handler;
+    kern_router_t *router;
     uint64_t timeout_ms;
     bool running;
 };
@@ -61,6 +62,7 @@ kern_server_t *kern_server_new(uv_loop_t *loop) {
 
     server->loop = loop;
     server->handler = NULL;
+    server->router = NULL;
     server->timeout_ms = 60000; /* 60 seconds default */
     server->running = false;
 
@@ -70,6 +72,11 @@ kern_server_t *kern_server_new(uv_loop_t *loop) {
 void kern_server_set_handler(kern_server_t *server, kern_handler_fn handler) {
     if (!server) return;
     server->handler = handler;
+}
+
+void kern_server_set_router(kern_server_t *server, kern_router_t *router) {
+    if (!server) return;
+    server->router = router;
 }
 
 void kern_server_set_timeout(kern_server_t *server, uint64_t timeout_ms) {
@@ -199,9 +206,16 @@ static void on_write_complete(uv_write_t *req, int status) {
     free(ctx);
 }
 
+/* Iterator callback to set route params on request */
+static bool kern_server_set_params_iter(const char *key, void *value, void *userdata) {
+    kern_req_t *req = (kern_req_t *)userdata;
+    kern_req_set_param(req, key, (const char *)value);
+    return true;
+}
+
 static void process_request(kern_conn_t *conn) {
     kern_server_t *server = conn->server;
-    if (!server->handler) {
+    if (!server->handler && !server->router) {
         close_connection(conn);
         return;
     }
@@ -212,7 +226,41 @@ static void process_request(kern_conn_t *conn) {
 
     kern_response_t *res = NULL;
     if (req) {
-        res = server->handler(req);
+        if (server->router) {
+            /* Router-based dispatch */
+            kern_dict_t *params = kern_dict_new();
+            kern_route_result_t result = kern_router_match(
+                server->router, kern_req_method(req), kern_req_path(req), params);
+
+            if (result.status == KERN_ROUTE_OK && result.handler) {
+                /* Set captured params on the request */
+                /* We iterate params dict and set each on req */
+                /* Since kern_dict doesn't expose raw iteration with values easily,
+                   we use a helper approach - match_tree already set them in params dict */
+                kern_dict_iter(params, kern_server_set_params_iter, req);
+                kern_dict_free(params);
+
+                /* Dispatch through middleware */
+                res = kern_router_dispatch(server->router, req, result.handler);
+            } else if (result.status == KERN_ROUTE_METHOD_NOT_ALLOWED) {
+                kern_dict_free(params);
+                /* Return 405 with Allow header */
+                res = kern_response_new(405);
+                kern_response_header(res, "Content-Type", "text/plain");
+                kern_response_body_str(res, "405 Method Not Allowed");
+            } else {
+                kern_dict_free(params);
+                /* 404 - try fallback handler */
+                if (server->handler) {
+                    res = server->handler(req);
+                } else {
+                    res = kern_404_response();
+                }
+            }
+        } else {
+            /* Simple handler mode */
+            res = server->handler(req);
+        }
     }
 
     if (!res) {

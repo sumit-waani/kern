@@ -26,6 +26,9 @@ add_library(kern STATIC
     src/kern_response.c
     src/kern_http_server.c
     src/kern_static.c
+    src/kern_router.c
+    src/kern_middleware.c
+    src/kern_fs_router.c
 )
 
 target_include_directories(kern PUBLIC
@@ -48,7 +51,7 @@ target_link_directories(kern PUBLIC
 enable_testing()
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
