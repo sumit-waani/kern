@@ -2,7 +2,7 @@
   "id": "FEAT-005",
   "type": "feat",
   "description": "Implement the .khtml template compiler: a build-time tool that parses Pug-style indentation-based template files and emits C source code that writes HTML into a kern_buf_t. Includes expression interpolation, conditionals, loops, includes, extends/block layout inheritance, and auto-escaping.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create src/kern_tpl_parser.c - template parser. Tokenize .khtml files line by line tracking indentation depth. Produce an AST with node types: Element (tag + attrs + children), Text (literal), Interpolation (#{expr} -> escaped, !{expr} -> raw), Statement (- if/else/for), Include, Extend, Block, Doctype.",
     "Create src/kern_tpl_codegen.c - C code generator. Walk the AST and emit C code that calls kern_buf_write/kern_buf_writef/kern_html_write_esc. For elements: open tag with attributes (handle dynamic {expr} attrs), recurse into children, close tag. For interpolation: emit kern_html_write_esc(buf, expr) for #{} and kern_buf_write(buf, expr) for !{}. For statements: emit verbatim C (if/for/while). For includes: emit a call to the included partial's render function. For extends/block: generate the layout call structure.",
@@ -25,5 +25,5 @@
     "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc) && ctest --output-on-failure"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 12 tests pass (8 existing + 4 new). Build compiles cleanly with -Wall -Wextra -pedantic (only pre-existing snprintf truncation warning in kern_fs_router.c). Template fixture path resolved via CMake compile definition TEST_FIXTURES_DIR. The codegen handles if/else blocks with proper brace management. Void tags (br, img, input, etc.) correctly skip closing tags."
 }
