@@ -7,6 +7,8 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 # Compiler flags
 add_compile_options(-pedantic -Wall -Wextra)
+# libuv headers on Linux require _GNU_SOURCE for pthread types
+add_compile_definitions(_GNU_SOURCE)
 
 # Find dependencies
 find_package(PkgConfig REQUIRED)
@@ -19,6 +21,11 @@ add_library(kern STATIC
     src/kern_str.c
     src/kern_dict.c
     src/kern_arena.c
+    src/kern_http_parser.c
+    src/kern_request.c
+    src/kern_response.c
+    src/kern_http_server.c
+    src/kern_static.c
 )
 
 target_include_directories(kern PUBLIC
@@ -41,10 +48,13 @@ target_link_directories(kern PUBLIC
 enable_testing()
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
     target_link_libraries(${test_name} PRIVATE kern)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# test_http_server needs pthreads for the integration test
+target_link_libraries(test_http_server PRIVATE pthread)

@@ -60,10 +60,24 @@ typedef enum {
     KERN_METHOD_OPTIONS
 } kern_method_t;
 
-/* Forward declarations for request/response/app structs */
+/* Forward declarations for request/response/app/server/parser structs */
 typedef struct kern_req kern_req_t;
 typedef struct kern_res kern_res_t;
 typedef struct kern_app kern_app_t;
+typedef struct kern_response kern_response_t;
+typedef struct kern_server kern_server_t;
+typedef struct kern_http_parser kern_http_parser_t;
+
+/**
+ * kern_handler_fn - HTTP request handler callback.
+ * Receives a request, returns a response. The caller frees the response.
+ */
+typedef kern_response_t *(*kern_handler_fn)(kern_req_t *req);
+
+/* HTTP parser return codes */
+#define KERN_HTTP_PARSE_NEED_MORE  0
+#define KERN_HTTP_PARSE_DONE       1
+#define KERN_HTTP_PARSE_ERROR     -1
 
 /* ============================================================
  * Buffer API (kern_buf.c)
@@ -245,6 +259,249 @@ void kern_arena_reset(kern_arena_t *arena);
  * Free the arena and all its blocks.
  */
 void kern_arena_free(kern_arena_t *arena);
+
+/* ============================================================
+ * HTTP Parser API (kern_http_parser.c)
+ * ============================================================ */
+
+/**
+ * Create a new HTTP parser instance.
+ */
+kern_http_parser_t *kern_http_parser_new(void);
+
+/**
+ * Free the HTTP parser and all parsed data.
+ */
+void kern_http_parser_free(kern_http_parser_t *parser);
+
+/**
+ * Reset the parser for a new request (reuse without reallocation).
+ */
+void kern_http_parser_reset(kern_http_parser_t *parser);
+
+/**
+ * Feed data to the parser. May be called multiple times as data arrives.
+ * Returns: KERN_HTTP_PARSE_NEED_MORE, KERN_HTTP_PARSE_DONE, or KERN_HTTP_PARSE_ERROR.
+ */
+int kern_http_parser_feed(kern_http_parser_t *parser, const char *data, size_t len);
+
+/**
+ * Check if parsing is complete.
+ */
+bool kern_http_parser_done(const kern_http_parser_t *parser);
+
+/**
+ * Check if the parser encountered an error.
+ */
+bool kern_http_parser_error(const kern_http_parser_t *parser);
+
+/**
+ * Get the parsed HTTP method.
+ */
+kern_method_t kern_http_parser_method(const kern_http_parser_t *parser);
+
+/**
+ * Get the parsed request path (without query string).
+ */
+const char *kern_http_parser_path(const kern_http_parser_t *parser);
+
+/**
+ * Get the parsed query string (without leading '?').
+ */
+const char *kern_http_parser_query_string(const kern_http_parser_t *parser);
+
+/**
+ * Get the HTTP version string (e.g., "HTTP/1.1").
+ */
+const char *kern_http_parser_version(const kern_http_parser_t *parser);
+
+/**
+ * Get the parsed headers dictionary (keys are lowercase).
+ */
+kern_dict_t *kern_http_parser_headers(const kern_http_parser_t *parser);
+
+/**
+ * Get the request body as a string slice.
+ * Only valid after parsing is done and Content-Length was present.
+ */
+kern_str_t kern_http_parser_body(const kern_http_parser_t *parser);
+
+/**
+ * Get the Content-Length value (0 if not present).
+ */
+size_t kern_http_parser_content_length(const kern_http_parser_t *parser);
+
+/* ============================================================
+ * HTTP Request API (kern_request.c)
+ * ============================================================ */
+
+/**
+ * Create a request object from a completed parser.
+ * Takes ownership of the parser (will free it when request is freed).
+ */
+kern_req_t *kern_req_new(kern_http_parser_t *parser);
+
+/**
+ * Free the request and all associated resources.
+ */
+void kern_req_free(kern_req_t *req);
+
+/**
+ * Get the request method.
+ */
+kern_method_t kern_req_method(const kern_req_t *req);
+
+/**
+ * Get the request path.
+ */
+const char *kern_req_path(const kern_req_t *req);
+
+/**
+ * Get the raw query string.
+ */
+const char *kern_req_query_string(const kern_req_t *req);
+
+/**
+ * Get a route parameter by name. Returns NULL if not found.
+ */
+const char *kern_param(const kern_req_t *req, const char *name);
+
+/**
+ * Get a query string parameter by name. Returns NULL if not found.
+ */
+const char *kern_query(kern_req_t *req, const char *name);
+
+/**
+ * Get a request header by name (case-insensitive). Returns NULL if not found.
+ */
+const char *kern_header(const kern_req_t *req, const char *name);
+
+/**
+ * Get the request body.
+ */
+kern_str_t kern_body(const kern_req_t *req);
+
+/**
+ * Get a URL-encoded form field by name. Returns NULL if not found.
+ */
+const char *kern_form_str(kern_req_t *req, const char *name);
+
+/**
+ * Set a route parameter (used internally by the router).
+ */
+void kern_req_set_param(kern_req_t *req, const char *name, const char *value);
+
+/* ============================================================
+ * HTTP Response API (kern_response.c)
+ * ============================================================ */
+
+/**
+ * Create a new response with the given HTTP status code.
+ */
+kern_response_t *kern_response_new(int status);
+
+/**
+ * Set a response header. Replaces existing value if key already exists.
+ */
+void kern_response_header(kern_response_t *res, const char *key, const char *val);
+
+/**
+ * Set the response body from raw data.
+ */
+void kern_response_body(kern_response_t *res, const char *data, size_t len);
+
+/**
+ * Set the response body from a null-terminated string.
+ */
+void kern_response_body_str(kern_response_t *res, const char *str);
+
+/**
+ * Get the response status code.
+ */
+int kern_response_status(const kern_response_t *res);
+
+/**
+ * Free the response and all associated memory.
+ */
+void kern_response_free(kern_response_t *res);
+
+/**
+ * Serialize the response to HTTP wire format.
+ * Returns a buffer containing the full HTTP response. Caller frees.
+ */
+kern_buf_t *kern_response_serialize(kern_response_t *res);
+
+/**
+ * Create a 404 Not Found response.
+ */
+kern_response_t *kern_404_response(void);
+
+/**
+ * Create a 500 Internal Server Error response with optional message.
+ */
+kern_response_t *kern_500_response(const char *msg);
+
+/**
+ * Create a redirect response (301, 302, 307, 308).
+ */
+kern_response_t *kern_redirect_response(const char *url, int status);
+
+/* ============================================================
+ * HTTP Server API (kern_http_server.c)
+ * ============================================================ */
+
+/* Requires: #include <uv.h> before including kern.h if using server API */
+struct uv_loop_s; /* Forward declare so kern.h doesn't require uv.h */
+
+/**
+ * Create a new HTTP server bound to the given event loop.
+ */
+kern_server_t *kern_server_new(struct uv_loop_s *loop);
+
+/**
+ * Set the request handler function.
+ */
+void kern_server_set_handler(kern_server_t *server, kern_handler_fn handler);
+
+/**
+ * Set connection timeout in milliseconds (default: 60000).
+ */
+void kern_server_set_timeout(kern_server_t *server, uint64_t timeout_ms);
+
+/**
+ * Start listening on the given host and port.
+ * Returns 0 on success, libuv error code on failure.
+ */
+int kern_server_listen(kern_server_t *server, const char *host, int port);
+
+/**
+ * Stop accepting new connections and close the listening socket.
+ */
+void kern_server_stop(kern_server_t *server);
+
+/**
+ * Free the server struct. Call after the event loop has stopped.
+ */
+void kern_server_free(kern_server_t *server);
+
+/**
+ * Get the actual port the server is listening on.
+ * Useful when binding to port 0 (OS-assigned port).
+ */
+int kern_server_port(kern_server_t *server);
+
+/* ============================================================
+ * Static File Handler API (kern_static.c)
+ * ============================================================ */
+
+/**
+ * Serve a static file from the given public directory.
+ * Uses the request path to locate the file. Handles:
+ *   - Content-Type based on file extension
+ *   - ETag / If-None-Match (304 Not Modified)
+ *   - Directory traversal prevention
+ */
+kern_response_t *kern_static_handler(kern_req_t *req, const char *public_dir);
 
 #ifdef __cplusplus
 }
