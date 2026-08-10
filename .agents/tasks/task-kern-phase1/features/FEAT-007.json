@@ -2,7 +2,7 @@
   "id": "FEAT-007",
   "type": "feat",
   "description": "Implement the kern CLI with three core commands: kern new (project scaffolding), kern build (compile templates + assets + link binary), and kern dev (watch mode with auto-rebuild). Also implement asset hashing pipeline.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create cli/main.c - CLI entry point with argument parsing. Dispatch to subcommands: new, build, dev, --version, --help. Use a simple hand-rolled arg parser (no external deps).",
     "Create cli/cmd_new.c - 'kern new <name>' command. Create project directory with: kern.toml (with app name, port 3000), app.c (entry point with kern_app_new/kern_app_listen/kern_app_run), pages/index.c (home route), views/layouts/base.khtml (base layout), views/pages/home.khtml (home template), assets/css/app.css (empty), db/migrations/.gitkeep, .gitignore (build/, dist/, public/assets/, *.o). Print a nice summary of created files.",
@@ -26,5 +26,5 @@
     "Test the full workflow: ./build/kern new /tmp/testapp && cd /tmp/testapp && /projects/sandbox/kern/build/kern build"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 20 tests pass. kern CLI builds successfully and is output-named 'kern'. kern new creates complete project scaffold. kern build compiles templates, generates route registry, hashes assets, and produces a working binary. The generated binary starts an HTTP server on port 3000. Asset hashing uses SHA-256 (first 8 hex chars). kern_config_get_str returns a pointer to internal config memory, so cmd_build.c strdup's the app name before freeing config. cmd_dev.c uses libuv fs_event for file watching with fork/exec for child process management."
 }
