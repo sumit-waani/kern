@@ -18,6 +18,7 @@
 int cmd_new(int argc, char **argv);
 int cmd_build(int argc, char **argv);
 int cmd_dev(int argc, char **argv);
+int cmd_fmt(int argc, char **argv);
 
 static void print_usage(void) {
     printf("kern %s - A C11 web framework\n\n", KERN_VERSION);
@@ -25,6 +26,7 @@ static void print_usage(void) {
     printf("  kern new <name>    Create a new kern project\n");
     printf("  kern build         Build the project for production\n");
     printf("  kern dev           Start development server with auto-rebuild\n");
+    printf("  kern fmt           Format source files (.c, .h, .khtml)\n");
     printf("  kern --version     Print version\n");
     printf("  kern --help        Print this help message\n");
     printf("\n");
@@ -59,6 +61,10 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "dev") == 0) {
         return cmd_dev(argc - 1, argv + 1);
+    }
+
+    if (strcmp(cmd, "fmt") == 0) {
+        return cmd_fmt(argc - 1, argv + 1);
     }
 
     fprintf(stderr, "Error: unknown command '%s'\n", cmd);

@@ -1176,6 +1176,37 @@ const char *kern_session_cookie(const kern_session_t *session);
 time_t kern_session_created_at(const kern_session_t *session);
 
 /* ============================================================
+ * Code Formatter API (kern_fmt.c)
+ * ============================================================ */
+
+/**
+ * Format a C source string with consistent style.
+ * Normalizes indentation to 4 spaces, trims trailing whitespace,
+ * and ensures consistent brace placement.
+ * Returns 0 on success, -1 on error.
+ */
+int kern_fmt_c(const char *source, kern_buf_t *out);
+
+/**
+ * Format a .khtml template string.
+ * Normalizes indentation to 2 spaces per level, trims trailing whitespace.
+ * Returns 0 on success, -1 on error.
+ */
+int kern_fmt_khtml(const char *source, kern_buf_t *out);
+
+/**
+ * Format a file in-place. Detects type by extension (.c/.h or .khtml).
+ * Returns 0 on success, -1 on error or unknown file type.
+ */
+int kern_fmt_file(const char *path);
+
+/**
+ * Check if a file needs formatting without modifying it.
+ * Returns 0 if already formatted, 1 if formatting needed, -1 on error.
+ */
+int kern_fmt_check(const char *path);
+
+/* ============================================================
  * Password Auth API (kern_auth.c)
  * ============================================================ */
 

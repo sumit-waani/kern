@@ -40,6 +40,7 @@ add_library(kern STATIC
     src/kern_session.c
     src/kern_auth.c
     src/kern_asset.c
+    src/kern_fmt.c
     src/kern_app.c
 )
 
@@ -68,12 +69,13 @@ add_executable(kern_cli
     cli/cmd_new.c
     cli/cmd_build.c
     cli/cmd_dev.c
+    cli/cmd_fmt.c
 )
 set_target_properties(kern_cli PROPERTIES OUTPUT_NAME "kern")
 target_link_libraries(kern_cli PRIVATE kern)
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static test_fmt)
 
 foreach(test_name ${KERN_TESTS})
     add_executable(${test_name} tests/${test_name}.c)
