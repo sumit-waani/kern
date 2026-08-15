@@ -7,19 +7,20 @@
 | Document | Description |
 |----------|-------------|
 | [Architecture](architecture.md) | High-level architecture, runtime model, build pipeline, and the three deliverables |
-| [Phase 1 Plan](phase1-plan.md) | Detailed implementation plan for v0.1 with milestones, dependencies, and acceptance criteria |
-| [Phases Overview](phases-overview.md) | All phases from v0.1 through v0.7 at summary level |
-| [API Reference](api-reference.md) | Public API surface for v0.1: kern.h types, request/response, router, DB, sessions, config |
+| [Phase 1 Plan](phase1-plan.md) | Implementation plan for v0.1 — milestones, dependencies, acceptance criteria |
+| [Phases Overview](phases-overview.md) | All phases from v0.1 through v0.7 + post-v0.7 roadmap |
+| [API Reference](api-reference.md) | Public API surface for kern.h: types, request/response, router, DB, sessions, config |
 | [Getting Started](getting-started.md) | How to use `kern new`, `kern dev`, `kern build` |
 | [Project Layout](project-layout.md) | Convention-based folder structure for kern apps |
 | [KHTML Syntax](khtml-syntax.md) | The `.khtml` template language reference |
+| [Security Hardening](security-hardening-plan.md) | Security issues and fixes (all phases completed) |
 
 ## Quick Links
 
 - **New to kern?** Start with [Getting Started](getting-started.md)
 - **Building an app?** See [Project Layout](project-layout.md) and [API Reference](api-reference.md)
 - **Writing templates?** See [KHTML Syntax](khtml-syntax.md)
-- **Contributing to kern itself?** See [Architecture](architecture.md) and [Phase 1 Plan](phase1-plan.md)
+- **Contributing to kern itself?** See [Architecture](architecture.md), [CONVENTIONS.md](../CONVENTIONS.md), and [TOOLING.md](../TOOLING.md)
 
 ## Design Principles
 
@@ -36,4 +37,4 @@
 
 ## Status
 
-kern is currently in active development. See [Phases Overview](phases-overview.md) for the full roadmap and [Phase 1 Plan](phase1-plan.md) for current work.
+kern v0.2 is shipped. v0.3 (Production Readiness) is next. See [Phases Overview](phases-overview.md) for the full roadmap.

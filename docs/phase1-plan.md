@@ -86,40 +86,13 @@ Deliver a working proof of the core: an HTTP server that routes requests via fil
 
 ---
 
-### Milestone 3: Fiber Runtime (Weeks 5-6)
+### Milestone 3: ~~Fiber Runtime~~ (Weeks 5-6) — SKIPPED
 
-**Objective:** Stackful coroutines so request handlers can write synchronous-looking code.
+**Original objective:** Stackful coroutines so request handlers can write synchronous-looking code.
 
-#### Tasks
+**Decision:** Intentionally not implemented. kern targets small-to-mid-size web apps running SQLite on a single VPS. The added complexity of user-space scheduling (stackful coroutines, context switching, a fiber scheduler) doesn't justify the marginal gain for this workload. The developer writes plain C functions that return responses — no callbacks, no futures, no `await`. libuv's built-in thread pool handles blocking work (password hashing, file I/O).
 
-1. **Context switching**
-   - Implement `kern_fiber_t` using `ucontext.h` (portable)
-   - Custom asm trampoline for x86_64 (faster path)
-   - 1KB stack per fiber with guard pages
-   - Fiber pool for reuse (avoid malloc per request)
-
-2. **Scheduler**
-   - Cooperative scheduler on the reactor thread
-   - `kern_yield()` to suspend current fiber
-   - `kern_resume(fiber)` to wake a fiber
-   - Integration with libuv: fiber yields while waiting for I/O
-
-3. **Async primitives**
-   - `kern_async_t` future type
-   - `kern_await()` that yields and resumes on completion
-   - Worker thread dispatch for blocking operations
-   - Thread-safe completion notification back to reactor
-
-4. **Per-request fiber**
-   - Each incoming HTTP request gets its own fiber
-   - Request context lives on the fiber (no global state)
-   - Fiber cleanup on request completion
-
-#### Acceptance Criteria
-- Fibers context-switch in < 100ns on x86_64
-- Concurrent requests handled without blocking the event loop
-- Blocking DB calls (simulated) yield correctly and resume
-- No memory leaks under sustained load (valgrind clean)
+**What was built instead:** The time was invested in the SQLite driver, query builder, and auth system (Milestones 7-9), which deliver more value for the target use case.
 
 ---
 
@@ -148,7 +121,7 @@ Deliver a working proof of the core: an HTTP server that routes requests via fil
 
 4. **Integration with HTTP server**
    - Wire router into request dispatch
-   - Route lookup per request, dispatch to handler fiber
+   - Route lookup per request, dispatch to handler
 
 #### Acceptance Criteria
 - Router correctly matches all test patterns including nested params
@@ -362,7 +335,7 @@ Deliver a working proof of the core: an HTTP server that routes requests via fil
    - In-memory session store (default)
 
 2. **Password hashing**
-   - `kern_password_hash(plain)` - hash with Argon2id
+   - `kern_password_hash(plain)` - hash with PBKDF2-HMAC-SHA256
    - `kern_password_verify(plain, hash)` - verify
    - Tunable parameters via config
    - Worker thread dispatch (CPU-intensive)
@@ -384,7 +357,7 @@ Deliver a working proof of the core: an HTTP server that routes requests via fil
 #### Acceptance Criteria
 - Sessions persist across requests via cookies
 - Session cookies are properly signed and validated
-- Password hashing uses Argon2id with safe defaults
+- Password hashing uses PBKDF2-HMAC-SHA256 with safe defaults (100K iterations)
 - CSRF tokens validated on all state-changing requests
 - Login rate limiting works (5 attempts / 15 min / IP)
 - Auth flow: signup, login, access protected page, logout
@@ -514,7 +487,7 @@ Milestone 11 (CLI) depends on all above milestones.
 | Radix router | Core types |
 | File-system routing scanner | Radix router (generates registrations for it) |
 | .khtml compiler | Core types (standalone build tool) |
-| SQLite driver | sqlite3, fiber runtime, core types |
+| SQLite driver | sqlite3, core types |
 | Query builder | SQLite driver, core types |
 | Migrations | SQLite driver, CLI framework |
 | Sessions | Core types, crypto (HMAC), HTTP (cookies) |
@@ -528,7 +501,7 @@ Milestone 11 (CLI) depends on all above milestones.
 |-------|-----------|-------------|
 | 1-2 | Foundation | Build system, core types, config, logging |
 | 3-4 | HTTP Server | Working HTTP/1.1 server with static files |
-| 5-6 | Fiber Runtime | Cooperative coroutines, async I/O |
+| 5-6 | ~~Fiber Runtime~~ | **Skipped** — plain C functions, libuv thread pool for blocking work |
 | 6-7 | Radix Router | High-performance route matching |
 | 7-8 | File-System Routing | Auto-generated route registry from pages/ |
 | 8-10 | .khtml Compiler | Template-to-C compilation |

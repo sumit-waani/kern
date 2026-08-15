@@ -41,19 +41,19 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 ## v0.3 - Production Readiness
 
-**Goal:** Add the features required to deploy a real application: email, background work, a production-grade database option, and security hardening.
+**Goal:** Add the features required to deploy a real application: email, background work, authorization, and security hardening.
 
 **Delivers:**
-- Mailer (SMTP client, log driver for dev)
+- Mailer (SMTP client, REST API provider support, log driver for dev)
 - Queue system with exponential backoff and dead-letter handling
 - Scheduler (cron-style task dispatch)
-- PostgreSQL driver (via libpq)
 - Authorization policies (`KERN_POLICY`, `KERN_AUTHORIZE`)
 - `kern doctor` - project diagnostics
 - Per-IP and per-route rate limiting (token bucket)
-- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards
 
-**Why third:** A real app needs to send emails (signups, password resets), run background jobs (cleanup, notifications), and handle authorization beyond "is the user logged in?" Postgres support unlocks apps that need concurrent writes. Rate limiting hardens the app for public traffic. SSE enables live features (notifications, dashboards, activity feeds) without the complexity of WebSockets. These are pre-requisites for any production deployment.
+**Why third:** A real app needs to send transactional emails (signups, password resets), run background jobs (cleanup, notifications, batch processing), and handle authorization beyond "is the user logged in?" Queue + scheduler are core infra that must be battle-tested early. Rate limiting hardens the app for public traffic. These are pre-requisites for any production deployment.
+
+**Note on scope:** PostgreSQL driver, SSE, and TLS are deferred to later phases. SQLite with WAL mode handles the target workload. kern's local-first monolith philosophy means the database runs in-process — no network hop, no connection pool negotiation.
 
 ---
 
@@ -76,17 +76,18 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 ---
 
-## v0.5 - Dashboard Polish
+## v0.5 - Dashboard Polish + SSE
 
-**Goal:** Turn the dashboard from functional to delightful. Add the integrations that eliminate manual VPS administration.
+**Goal:** Turn the dashboard from functional to delightful. Add live features and operational polish.
 
 **Delivers:**
 - Cloudflare DNS + CDN integration (auto-DNS, cache purge on deploy)
 - Per-app stats and graphs (CPU, memory, network, request latency)
 - Self-update mechanism for kernd
 - Per-app environment variables and secrets UI (encrypted at rest)
+- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards
 
-**Why fifth:** The MVP dashboard (v0.4) handles the critical path: deploy and serve. v0.5 adds the operational polish that makes it a joy to use long-term. Cloudflare integration removes the need for manual DNS. Stats give visibility. Secrets management removes the need for SSH-ing in to set env vars.
+**Why fifth:** The MVP dashboard (v0.4) handles the critical path: deploy and serve. v0.5 adds the operational polish that makes it a joy to use long-term. SSE enables live features (notifications, dashboards, activity feeds) without the complexity of WebSockets — and the dashboard itself is the first consumer of this capability (live stats, deploy status).
 
 ---
 
@@ -124,6 +125,7 @@ This document describes the full roadmap from initial proof-of-concept to stable
 These items are planned but not committed to a specific version. They will be prioritized based on real-world usage and community feedback.
 
 **Framework:**
+- PostgreSQL driver (via libpq)
 - Alternative databases (libSQL/Turso, MySQL)
 - Built-in static site generation
 - Plugin registry (kern plugins vs. kernd plugins)
@@ -155,7 +157,7 @@ v0.1 (Core) ✅
   └── v0.2 (DX) ✅
         └── v0.3 (Production)
               └── v0.4 (Dashboard MVP)
-                    └── v0.5 (Dashboard Polish)
+                    └── v0.5 (Dashboard Polish + SSE)
                           └── v0.6 (Modern Protocols)
                                 └── v0.7 (Stable)
 ```

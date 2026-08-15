@@ -20,9 +20,9 @@ A C11 shared library (~30 KLOC at v0.7) with a single public header `<kern.h>`. 
 - HTTP/1.1 server with keep-alive
 - Radix tree router (lock-free reads)
 - Request/response lifecycle
-- Fiber-based concurrency (stackful coroutines)
+- Request handler dispatch
 - Template rendering runtime
-- Database drivers (SQLite, Postgres)
+- Database driver (SQLite)
 - Query builder
 - Session management
 - Authentication primitives
@@ -47,7 +47,6 @@ A single static binary installed on the developer's machine. The CLI is the buil
 - `kern test` - run tests
 - `kern db.migrate` - run database migrations
 - `kern fmt` - format code
-- `kern routes` - list registered routes
 
 ### 3. kernd - The Production Dashboard
 
@@ -68,21 +67,18 @@ A daemon that runs on a VPS as a long-lived process. It manages the full lifecyc
 
 ### Event Loop Architecture
 
-kern follows the libuv/Node model with a critical addition: fibers that make async code look synchronous.
+kern follows a single-threaded event loop model powered by libuv. No fibers, no coroutines, no user-space scheduling — the developer writes plain C functions that return responses.
 
 ```
                     ┌─────────────────────────────────┐
-                    │     Main Reactor Thread          │
+                    │     Main Event Loop Thread       │
                     │                                  │
                     │  ┌─────────────────────────┐    │
                     │  │   libuv Event Loop       │    │
-                    │  │   (epoll / io_uring)     │    │
+                    │  │   (epoll on Linux)       │    │
                     │  └─────────────────────────┘    │
                     │                                  │
-                    │  ┌─────────────────────────┐    │
-                    │  │   Fiber Scheduler        │    │
-                    │  │   (cooperative, per-req) │    │
-                    │  └─────────────────────────┘    │
+                    │  Request dispatch to handlers    │
                     └────────────┬────────────────────┘
                                  │
                     ┌────────────┴────────────────────┐
@@ -90,22 +86,12 @@ kern follows the libuv/Node model with a critical addition: fibers that make asy
                     │   (size = num_cpus - 1)          │
                     │                                  │
                     │   - File I/O                     │
-                    │   - bcrypt / argon2              │
+                    │   - PBKDF2 password hashing      │
                     │   - Blocking DB queries          │
-                    │   - Mail send                    │
                     └─────────────────────────────────┘
 ```
 
-### Concurrency Primitives
-
-1. **`kern_fiber_t`** - A stackful coroutine (1KB stack). Each HTTP request runs in its own fiber. Fibers are cooperatively scheduled on the reactor thread.
-
-2. **`kern_async_t`** - A future wrapper. `kern_await(kern_async_t *)` yields the current fiber and resumes when the operation completes.
-
-**Implementation:**
-- `ucontext.h` where available (portable fallback)
-- Custom asm trampoline for x86_64 and aarch64 (faster, ~50ns context switch)
-- For Linux: optional `io_uring` reactor (faster than epoll for bursty workloads)
+**Why no fibers:** kern targets small-to-mid-size web apps running SQLite on a single VPS. The bottleneck is the database, not concurrency. Adding stackful coroutines solves a problem we don't have. If the target workload changes (PostgreSQL, 10K+ concurrent connections), this decision may be revisited.
 
 ### How It Looks to the Developer
 
@@ -114,13 +100,13 @@ The developer writes straight-line C. No callbacks required:
 ```c
 static kern_response_t *post_show(kern_req_t *req) {
     const char *id = kern_param(req, "id");
-    // This call may block on the database. Internally, kern yields the fiber,
-    // runs sqlite3_step in a worker thread, resumes when the row is ready.
     post_t *p = post_find_by_id(id);
     if (!p) return kern_404(req);
-    return kern_render(req, "posts/show", KERN_T("post", p));
+    return kern_render(req, "posts/show", vars);
 }
 ```
+
+The handler is a plain function. It queries the database, builds a response, returns it. The libuv event loop handles concurrency by dispatching requests to handlers.
 
 ## Build Pipeline
 
@@ -152,7 +138,7 @@ kern dev / kern build
 ### Production Build (`kern build`)
 
 1. Full template compile
-2. Asset hash + minify (lightningcss for CSS)
+2. Asset hash + minify
 3. Compile with `-O2 -fvisibility=hidden -flto`
 4. Strip debug info
 5. Link statically against libkern
@@ -160,23 +146,20 @@ kern dev / kern build
 
 ## External Dependencies
 
-| Dependency | Purpose | License |
-|-----------|---------|---------|
-| libuv | Event loop, async I/O | MIT |
-| SQLite | Default database | Public domain |
-| mbedTLS | TLS termination (deferred to v0.3+) | Apache 2.0 |
-| cJSON | JSON parsing/serialization | MIT |
-| lightningcss | CSS minification | MPL 2.0 |
+| Dependency | Purpose | License | Status |
+|-----------|---------|---------|--------|
+| libuv | Event loop, async I/O | MIT | Implemented |
+| SQLite | Default (and only) database | Public domain | Implemented |
+| mbedTLS | TLS termination | Apache 2.0 | Planned (v0.3+) |
 
-## Performance Characteristics
+## Performance Characteristics (design targets)
 
-| Metric | Value |
-|--------|-------|
+| Metric | Target |
+|--------|--------|
 | Cold start | < 5 ms |
 | Memory baseline | ~3 MB resident |
 | Throughput (hello world) | ~50K req/s per core |
 | Binary size (hello world) | ~1.5 MB stripped, ~800 KB with LTO |
-| Context switch (fiber) | ~50 ns on x86_64 |
 | Concurrent connections | ~10K per process |
 
 ## Deployment Architecture

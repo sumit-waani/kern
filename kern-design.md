@@ -2,7 +2,7 @@
 
 > *One binary per app. One command to ship. One dashboard to run your fleet.*
 
-**Status:** Design specification, v0.7 draft
+**Status:** Design specification, v0.7 draft. Sections marked with *(implemented)* reflect what exists in code today. Unmarked sections are planned.
 **Audience:** Systems-side developers who want the productivity of Rails/Lucky/Phoenix without leaving the C runtime.
 
 ---
@@ -54,7 +54,7 @@ You don't want to learn a new language. You want a single opinionated toolchain 
 
 It targets the same developer who reaches for Rails or Lucky, but who would rather have:
 - one binary per app, no runtime, no container, no language server tax
-- direct access to libc, syscalls, cgroups, epoll/io_uring when needed
+- direct access to libc, syscalls, cgroups, epoll when needed
 - a toolchain that doesn't change under their feet
 - a dashboard for shipping to a VPS without learning Kubernetes, nginx, systemd unit files, and Let's Encrypt acme.sh
 
@@ -63,8 +63,8 @@ It targets the same developer who reaches for Rails or Lucky, but who would rath
 | In | Out |
 |---|---|
 | Server-side rendered apps | SPAs / WASM / heavy client reactivity |
-| HTTP/1.1, HTTP/2, SSE for server push | HTTP/3 (QUIC), WebSocket (post-v0.7) |
-| SQLite, PostgreSQL | MongoDB, Redis-as-primary (Redis supported for cache/queue only) |
+| HTTP/1.1 (HTTP/2 in v0.6) | HTTP/3 (QUIC), WebSocket (post-v0.7) |
+| SQLite (PostgreSQL post-v0.7) | MongoDB, Redis-as-primary (Redis supported for cache/queue only) |
 | Single-VPS deployment via dashboard | Multi-region / k8s / multi-host federation (out of scope) |
 | Linux server (dashboard) | Windows server (macOS dev supported, Windows dev best-effort) |
 | Tailwind v4, hand-written CSS | SASS/Less (Tailwind is the default; you can skip it) |
@@ -189,14 +189,14 @@ A C11 shared library, ~30 KLOC at v0.7, single header `<kern.h>` for user code.
 - **POSIX 2017** baseline for syscalls, threads, sockets.
 - No exceptions, no RTTI, no templates. (D/Rust/Crystal users will recognize the trade.)
 
-### 5.2 Runtime model
+### 5.2 Runtime model *(implemented)*
 
-We follow the libuv/Node model:
+We follow a single-threaded event loop model powered by libuv:
 
-- **One main reactor thread** per process. Owns the event loop. Runs the HTTP server, timers, DNS, async I/O.
-- **A worker thread pool** (size = `KERN_WORKERS`, default = num CPUs - 1). For blocking work: file I/O, bcrypt, DB queries (when the driver is blocking), mail send.
-- **The developer writes straight-line C.** No callbacks required for typical apps. The request handler runs in its own fiber (we use a small user-space coroutine lib — see 5.3).
-- **Green threads / fibers** for "looks synchronous" I/O. This is the Vibe.d magic adapted to C.
+- **One main event loop thread** per process. Runs the HTTP server, timers, and async I/O via libuv.
+- **A worker thread pool** (size = `KERN_WORKERS`, default = num CPUs - 1). Used for blocking work: file I/O, password hashing (PBKDF2), DB queries.
+- **Request handlers are plain C functions.** Each incoming HTTP request dispatches to a handler function. The handler does its work and returns a response. No callbacks, no async/await, no fiber magic.
+- **SQLite is the default (and currently only) database.** WAL mode with a single-writer queue handles ~15-18K rps for typical workloads — more than enough for the small-to-mid-size apps kern targets. The local-first monolith philosophy means no connection pool negotiation, no network hop.
 
 A user handler looks like this:
 
@@ -215,64 +215,59 @@ static kern_response_t *post_show(kern_req_t *req) {
 }
 ```
 
-That `post_find_by_id` call may block on the database. Internally kern's DB driver yields the fiber, runs the actual `sqlite3_step` in a worker thread, resumes the fiber when the row is ready. The user doesn't see any of this.
+**Design note:** We deliberately chose *not* to implement fibers/coroutines or `io_uring`. For the target workload (small-to-mid-size web apps with SQLite), the added complexity of user-space scheduling doesn't justify the marginal gain. If you're building something that needs 50K+ concurrent connections or sub-millisecond latency, kern isn't the right tool.
 
-### 5.3 Coroutines (the "looks synchronous" trick)
+### 5.3 Concurrency — why no fibers
 
-C11 has no coroutines. We don't ship a full userland scheduler. Instead, libkern has two concurrency primitives:
+Frameworks like Vibe.d and Topcoat use stackful coroutines so that blocking I/O "looks synchronous" to the developer. kern does not.
 
-1. **`kern_fiber_t`** — a stackful coroutine (1KB stack). Each HTTP request runs in its own fiber. Coroutines are cooperatively scheduled on the reactor thread.
-2. **`kern_async_t`** — a "future" wrapper. `kern_await(kern_async_t *)` yields the current fiber and resumes when the operation completes.
+**Why:** kern targets small-to-mid-size web apps running SQLite on a single VPS. The bottleneck is the database, not the CPU. Adding fibers (1KB stacks, context switching, a user-space scheduler) solves a problem we don't have. The developer writes plain C functions that return responses — no callbacks, no futures, no `await`.
 
-The coroutine switch is ~50 ns on x86_64. There's no GC, no allocation in the hot path. We use a small per-fiber pool for the request context.
+For blocking work (password hashing, file I/O), libuv's built-in thread pool handles dispatch. The main event loop never blocks.
 
-**Implementation:** we use a portable context switch (`ucontext.h` where available, our own asm trampoline elsewhere). For Linux we optionally use `io_uring` for the reactor itself (faster than epoll for bursty workloads); epoll is the fallback.
+If a future version of kern adds PostgreSQL or needs to handle 10K+ concurrent connections, fibers may be revisited. Until then, simplicity wins.
 
-### 5.4 HTTP server (`kern.io`)
+### 5.4 HTTP server *(implemented)*
 
-- HTTP/1.1 + keep-alive. HTTP/2 in v0.6. HTTP/3 (QUIC) is out of scope for v0.7.
-- TLS via mbedTLS (lightweight, embed-friendly, Apache 2.0). mbedTLS gives us a single `.a` we can statically link.
-- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards. One-way: server pushes HTML fragments to the browser via `EventSource`. User actions still use normal HTTP fetch (shards).
-- Static file serving with `sendfile(2)`, range requests, ETag, brotli/gzip.
+- HTTP/1.1 + keep-alive. HTTP/2 planned for v0.6.
+- TLS via mbedTLS — planned for v0.3+.
+- Static file serving with ETag and `304 Not Modified`.
 - Graceful shutdown — finish in-flight requests on `SIGTERM`.
-- Per-IP rate limit, per-route rate limit (token bucket, in-memory + optional Redis).
+- Per-IP and per-route rate limiting (token bucket, in-memory) — planned for v0.3.
 
-### 5.5 Routing
+### 5.5 Routing *(implemented)*
 
 File-system routing, Topcoat-style. See [section 8](#8-routing--file-system-first) for full details.
 
-### 5.6 Request / response
+### 5.6 Request / response *(implemented)*
 
 ```c
 typedef struct kern_req_s {
     kern_method_t   method;
     kern_str_t      path;
     kern_str_t      host;
-    kern_dict_t    *params;       // path params (typed)
-    kern_dict_t    *query;        // query string (typed)
+    kern_dict_t    *params;       // path params
+    kern_dict_t    *query;        // query string
     kern_dict_t    *headers;
     kern_dict_t    *cookies;
     kern_session_t *session;      // lazy
     kern_user_t    *current_user; // lazy
-    kern_fiber_t   *fiber;
     void           *ud;           // user data
 } kern_req_t;
 
 typedef struct kern_res_s {
     int             status;
     kern_dict_t    *headers;
-    kern_body_t    *body;         // string, file, or stream
+    kern_body_t    *body;         // string or file
 } kern_res_t;
 ```
 
-### 5.7 Built-in handlers
+### 5.7 Built-in handlers *(implemented)*
 
 - `kern_404(req)`, `kern_500(req, err)`, `kern_redirect(req, "/path", 302)`
 - `kern_render(req, view_name, vars...)` — render a `.khtml` template
 - `kern_json(req, obj)` — serialize a `cJSON` tree with proper content-type
 - `kern_send_file(req, "path")` — static file with caching headers
-- `kern_sse(req, chan)` — open an SSE stream
-- `kern_stream(req, body_fn)` — chunked response
 
 ---
 
@@ -548,7 +543,7 @@ myapp/
 ### Naming conventions
 
 - Files: `snake_case.c`, `snake_case.h`
-- Types: `PascalCase` (struct) or `PascalCase_t` (typedef'd)
+- Types: `snake_case_t` (typedef'd struct, e.g. `kern_buf_t`, `post_t`)
 - Functions: `module_action_thing(ctx, ...)` (e.g. `post_create(req, input)`)
 - Constants: `UPPER_SNAKE_CASE` or `KERN_PREFIXED_UPPER`
 - Templates: `kebab-case-or-underscore.khtml`
@@ -906,18 +901,11 @@ The migration tool is a built-in CLI subcommand, not an external binary. It trac
 
 In-process pool. SQLite is single-writer — we use a "writer mutex" with a queue, and unlimited read connections (WAL mode allows it). For Postgres, real connection pool (configurable size).
 
-### 10.5 Postgres support
+### 10.5 Postgres support *(future — post-v0.7)*
 
-Switch via `kern.toml`:
+PostgreSQL support is planned for a future release. kern's local-first monolith philosophy means SQLite is the right default for the target workload (small-to-mid-size web apps on a single VPS). SQLite with WAL mode, a single-writer queue, and batch flush handles ~15-18K rps — more than enough.
 
-```toml
-[database]
-driver = "postgres"   # or "sqlite" (default)
-url    = "postgres://user:pass@host/db"
-pool_size = 16
-```
-
-The query builder, the model macros, the validators — all driver-agnostic. SQL dialect is normalized to a common subset; raw SQL is raw SQL.
+When Postgres support lands, it will be a drop-in driver swap via `kern.toml`. The query builder and model macros are designed to be driver-agnostic.
 
 ---
 
@@ -930,10 +918,11 @@ The query builder, the model macros, the validators — all driver-agnostic. SQL
 - Storage: in-memory + optional Redis. Default in-memory with periodic snapshot to disk.
 - `Kern.session.start(req)`, `Kern.session.set(req, "user_id", u.id)`, `Kern.session.get(req, "user_id")`, `Kern.session.destroy(req)`.
 
-### 11.2 Password hashing
+### 11.2 Password hashing *(implemented — PBKDF2)*
 
-- **Argon2id** (default), parameters tunable per app.
-- Fallback: bcrypt (for migrating from PHP/Ruby hashes).
+- **PBKDF2-HMAC-SHA256** with 100,000 iterations, 16-byte salt, 32-byte derived key. Zero external crypto dependencies.
+- Output format: `pbkdf2-sha256:100000:hex_salt:hex_hash`
+- Backward-compatible verify detects old (pre-v0.2) SHA-256 hashes for migration.
 - `kern_password_hash(plain)` and `kern_password_verify(plain, hash)`.
 
 ### 11.3 The built-in auth scaffold
@@ -1118,9 +1107,9 @@ env      = "dev"                        # dev | prod | test
 timezone = "UTC"
 
 [database]
-driver   = "sqlite"                     # sqlite | postgres
+driver   = "sqlite"                     # sqlite (postgres support planned post-v0.7)
 path     = "./db/dev.sqlite"            # for sqlite
-# url      = "postgres://..."           # for postgres
+# url      = "postgres://..."           # for postgres (future)
 # pool     = 16
 
 [session]
@@ -1141,7 +1130,7 @@ minify   = true
 # public_dir = "public"
 
 [auth]
-password_algo     = "argon2id"
+password_algo     = "pbkdf2-sha256"
 session_cookie    = "myapp_sess"
 require_email_verification = false
 
@@ -1746,7 +1735,7 @@ A single kern process is enough for ~95% of small/medium web apps. The reactor h
 
 `kern build` produces a single binary. To run multiple instances:
 - **Same host:** kernd can run N replicas per app (round-robin via the reverse proxy). cgroup memory splits N ways.
-- **Multi-host:** run more VPSes, each with kernd. Front them with Cloudflare or a TCP load balancer. Session state goes to Redis. DB goes to a managed Postgres.
+- **Multi-host:** run more VPSes, each with kernd. Front them with Cloudflare or a TCP load balancer.
 
 ### 21.4 Profiling
 
@@ -1769,7 +1758,7 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 | MIME sniffing | `X-Content-Type-Options: nosniff`. |
 | HSTS | Strict-Transport-Security on HTTPS responses (configurable). |
 | Cookies | `__Host-` prefix, `Secure`, `HttpOnly`, `SameSite=Lax`. |
-| Password storage | Argon2id. |
+| Password storage | PBKDF2-HMAC-SHA256 (100K iterations). |
 | Rate limit | Per-IP and per-route. 429 with Retry-After. |
 | CSP | Sensible default. Strict by default for new apps. |
 | Subresource integrity | Built into `asset()` helper. |
@@ -1803,58 +1792,70 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 - Tailwind v4 compile (C implementation).
 - Shards (HTMX-style).
 
-### v0.3 — production
-- Mailer (SMTP, log driver).
-- Queue + scheduler.
-- Postgres driver.
-- Authorization policies.
-- `kern doctor`.
-- Rate limiting.
-- SSE (Server-Sent Events) — built-in server push for live updates.
+### v0.3 — production readiness
+- Mailer (SMTP client, REST API fallback, log driver for dev).
+- Queue system with exponential backoff and dead-letter handling.
+- Scheduler (cron-style task dispatch).
+- Authorization policies (`KERN_POLICY`, `KERN_AUTHORIZE`).
+- `kern doctor` — project diagnostics.
+- Per-IP and per-route rate limiting (token bucket).
 
 ### v0.4 — dashboard MVP
-- kernd install script.
-- Admin UI, app add/remove, deploy.
-- Cgroup v2 manager.
-- Reverse proxy (host-header).
-- Let's Encrypt integration.
-- Log capture + rotate.
-- Backups (local + S3).
+- `kernd` daemon binary.
+- Install script (single curl command).
+- Admin Web UI (app add/remove, deploy trigger).
+- Git clone + build worker.
+- cgroup v2 resource management (CPU, memory, PIDs per app).
+- Built-in reverse proxy (host-header routing, ports 80/443).
+- Let's Encrypt integration (ACME HTTP-01 + DNS-01).
+- Log capture and rotation.
+- Backup system (local + S3-compatible targets).
 
-### v0.5 — dashboard polish
-- Cloudflare DNS + CDN integration.
-- Stats + graphs.
-- Update mechanism.
-- Per-app env var + secrets UI.
+### v0.5 — dashboard polish + SSE
+- Cloudflare DNS + CDN integration (auto-DNS, cache purge on deploy).
+- Per-app stats and graphs (CPU, memory, network, request latency).
+- Self-update mechanism for kernd.
+- Per-app environment variables and secrets UI (encrypted at rest).
+- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards.
 
 ### v0.6 — modern protocols
-- HTTP/2.
-- Zero-downtime deploys (pre-start hook).
+- HTTP/2 support (multiplexing, header compression).
+- Zero-downtime deploys (pre-start hook: warm new process before swap).
 
-### v0.7 — stable
-- API stable.
-- Docs complete.
-- Project templates (`kern new --template <name>`).
+### v0.7 — stable release
+- API frozen (semver guarantees from this point).
+- Complete documentation.
+- Project templates via `kern new --template <name>` (blog, SaaS, API, admin presets).
 - Migration guides from Rails, Phoenix, Laravel.
-- Production case studies (3+ real users).
+- Production case studies (3+ real deployments).
 - Performance benchmarks published.
 - Security audit completed.
 
-Post-v0.7 (public roadmap):
-- Alternative DBs (libSQL/Turso, MySQL).
+### Post-v0.7 (public roadmap)
+
+**Framework:**
+- PostgreSQL driver.
+- Alternative databases (libSQL/Turso, MySQL).
 - Built-in static site generation.
 - Plugin registry (kern plugins vs. kernd plugins).
 - Web-based admin generator (like `rails_admin`).
-- Multi-replica support per app.
-- Redis session/queue drivers.
+
+**Dashboard & Operations:**
+- Multi-replica support per app (round-robin via reverse proxy).
+- Redis session driver (shared sessions across instances).
+- Redis queue driver (shared job queue across instances).
 - kernd-to-kernd federation (cluster view across VPSes).
 - `kernd ha` for active-passive kernd clusters.
 - HTTP/3 (QUIC) support.
-- WebSocket support (for apps that need bidirectional real-time: collaborative editing, gaming).
-- VSCode extension (LSP for C + `.khtml`).
-- Neovim plugin.
+- WebSocket support (for apps that genuinely need bidirectional real-time: collaborative editing, gaming).
+
+**Infrastructure & Ecosystem:**
+- VSCode extension (LSP for C + `.khtml` syntax highlighting).
+- Neovim plugin (same LSP, treesitter grammar for `.khtml`).
 - Helm chart for Kubernetes users.
 - Terraform module for AWS / Hetzner / DigitalOcean.
+- GitHub Actions workflow templates.
+- Hosted kern offering (kern.dev SaaS).
 
 ---
 
@@ -1885,10 +1886,10 @@ Post-v0.7 (public roadmap):
 
 ## 25. Open questions
 
-1. **Coroutines: ucontext vs. our own asm?** `ucontext.h` is deprecated in glibc but still works. A 200-line asm trampoline would be portable and faster. Leaning: our own asm for x86_64 and aarch64, ucontext as fallback.
+1. ~~**Coroutines: ucontext vs. our own asm?**~~ **Decided: No coroutines.** kern writes plain C functions. libuv thread pool handles blocking work. See §5.3.
 2. **TLS library: mbedTLS vs. BearSSL vs. picotls?** All three are embed-friendly. mbedTLS has the best docs and broadest support. BearSSL is the smallest (~80 KB). picotls is the most modern. Leaning: mbedTLS for the binary, with BearSSL considered for the dashboard's static binary.
-3. **Tailwind: reimplement in C, or shell out?** Reimplementing is a few KLOC and the result is a single static binary. Shelling out (Node) breaks the "no toolchain" promise. Leaning: reimplement, but only the JIT scanner + a hand-rolled CSS emitter. The actual CSS engine (cascade, variables) we delegate to lightningcss.
-4. **Postgres driver: libpq vs. our own?** libpq is the obvious choice. Our own would be ~3 KLOC and avoid the libpq dependency. Leaning: libpq for v1, "our own via the PG wire protocol" for v1.1.
+3. **Tailwind: reimplement in C, or shell out?** **Decided: reimplemented in C.** `kern_tailwind.c` is a pure-C JIT scanner that emits CSS. No Node, no external deps.
+4. ~~**Postgres driver: libpq vs. our own?**~~ **Deferred to post-v0.7.** SQLite is the only database for the active roadmap. See §10.5.
 5. **REPL: embed Lua or write our own?** Lua is ~150 KB, MIT, and proven. Writing our own is overkill. Leaning: Lua.
 6. **Dashboard UI framework: server-rendered `.khtml` too?** Yes. The dashboard is a kern app — it eats its own dog food. Auth pages, app list, log viewer — all `.khtml`. The graphs use uPlot (10 KB, MIT) loaded as a static asset.
 7. **Cgroups v1 fallback?** No. Cgroups v2 is in mainline Linux 5.x, which is what every modern VPS runs. We document this in the install prereqs.

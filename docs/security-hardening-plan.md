@@ -3,19 +3,21 @@
 This document describes the phased approach to addressing the 7 issues
 identified in the code review of kern v0.1.
 
+**Status:** All 3 phases completed as of v0.2.
+
 ## Issues Summary
 
-| # | Issue | Severity | Phase |
-|---|-------|----------|-------|
-| 1 | Weak password hashing (SHA-256) | High | 2 |
-| 2 | Unbounded HTTP parser buffers | High | 3 |
-| 3 | Session memory leak / no expiration | Medium | 2 |
-| 4 | Dict value ownership gap | Medium | 1 |
-| 5 | Router 405 path leaks param values | Medium | 1 |
-| 6 | Static file traversal via symlinks | Medium | 3 |
-| 7 | Template codegen trusts expression content | Low | 3 |
+| # | Issue | Severity | Phase | Status |
+|---|-------|----------|-------|--------|
+| 1 | Weak password hashing (SHA-256) | High | 2 | ✅ Fixed — PBKDF2-HMAC-SHA256 |
+| 2 | Unbounded HTTP parser buffers | High | 3 | ✅ Fixed — limits added |
+| 3 | Session memory leak / no expiration | Medium | 2 | ✅ Fixed — TTL + cap |
+| 4 | Dict value ownership gap | Medium | 1 | ✅ Fixed — `kern_dict_new_with_free` |
+| 5 | Router 405 path leaks param values | Medium | 1 | ✅ Fixed — free_fn on temp dict |
+| 6 | Static file traversal via symlinks | Medium | 3 | ✅ Fixed — realpath() check |
+| 7 | Template codegen trusts expression content | Low | 3 | ✅ Documented |
 
-## Phase 1: Foundation - Dict Ownership and Router Leak (Current)
+## Phase 1: Foundation - Dict Ownership and Router Leak ✅
 
 **Goal**: Fix the foundational data structure (`kern_dict_t`) so it can
 properly manage the lifecycle of heap-allocated values. Then fix the

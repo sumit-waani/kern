@@ -1,6 +1,6 @@
-# API Reference (v0.1)
+# API Reference (v0.2)
 
-This document covers the public API surface exposed by `<kern.h>` for v0.1. All types, functions, and macros listed here are part of the stable interface for user applications.
+This document covers the public API surface exposed by `<kern.h>`. Sections marked **(implemented)** reflect what exists in code today. Sections marked **(planned)** describe the intended API for features not yet built — the signatures may change during implementation.
 
 ---
 
@@ -130,7 +130,6 @@ typedef struct kern_req_s {
     kern_dict_t    *cookies;        // parsed cookies
     kern_session_t *session;        // lazy-loaded session
     kern_user_t    *current_user;   // lazy-loaded current user
-    kern_fiber_t   *fiber;          // the fiber this request runs in
     void           *ud;             // user data pointer
 } kern_req_t;
 ```
@@ -184,10 +183,10 @@ kern_response_t *kern_500(kern_req_t *req, const char *error);
 // Static file
 kern_response_t *kern_send_file(kern_req_t *req, const char *path);
 
-// SSE stream
+// SSE stream *(planned — v0.5)*
 kern_response_t *kern_sse(kern_req_t *req, kern_sse_t *chan);
 
-// Chunked stream
+// Chunked stream *(planned — v0.5)*
 kern_response_t *kern_stream(kern_req_t *req, kern_body_fn body_fn);
 
 // Raw response
@@ -271,29 +270,29 @@ KERN_MIDDLEWARE("section_name") {
 Render a `.khtml` template with variables:
 
 ```c
-// Using KERN_T macro for inline variable creation
-return kern_render(req, "posts/show", KERN_T(
-    "post", post,
-    "comments", comments,
-    "comments_len", (size_t)count
-));
-
-// Using kern_dict_t explicitly
+// Using kern_dict_t explicitly (current API)
 kern_dict_t *vars = kern_dict_new();
 kern_dict_set(vars, "title", "Hello");
 kern_dict_set(vars, "items", item_list);
 return kern_render(req, "pages/home", vars);
+
+// KERN_T macro — convenience shorthand *(planned)*
+// return kern_render(req, "posts/show", KERN_T(
+//     "post", post,
+//     "comments", comments,
+//     "comments_len", (size_t)count
+// ));
 ```
 
-### Template Helper Variable Macro
+### Template Helper Variable Macro *(planned)*
 
 ```c
 // KERN_T creates a kern_dict_t from key-value pairs
-kern_dict_t *vars = KERN_T(
-    "key1", value1,
-    "key2", value2,
-    "key3", value3
-);
+// kern_dict_t *vars = KERN_T(
+//     "key1", value1,
+//     "key2", value2,
+//     "key3", value3
+// );
 ```
 
 ### Asset URLs in Templates
@@ -340,36 +339,63 @@ while (kern_rows_next(rows)) {
 kern_rows_free(rows);
 ```
 
-### Query Builder
+### Query Builder *(implemented)*
+
+The query builder uses a procedural API with typed functions:
 
 ```c
 // SELECT
-kern_qb_t *q = kern_qb(db)
-    ->select(post, *)
-    ->from(post)
-    ->where(published, "=", kern_arg_bool(true))
-    ->order_by(created_at, DESC)
-    ->limit(20)
-    ->offset(0);
+kern_qb_t *q = kern_qb_new(db);
+kern_qb_select(q, "*");
+kern_qb_from(q, "posts");
+kern_qb_where_bool(q, "published", "=", true);
+kern_qb_order(q, "created_at", "DESC");
+kern_qb_limit(q, 20);
 
-post_t **posts = kern_qb_all(q, post_t);   // returns array
-post_t *post   = kern_qb_one(q, post_t);   // returns single row or NULL
-int64_t count  = kern_qb_count(q);          // returns COUNT(*)
+kern_db_result_t *result = kern_qb_query(q);  // execute
+kern_db_result_t *one    = kern_qb_one(q);     // single row or NULL
 
 // INSERT
-int64_t id = KERN_INSERT(tx, post,
-    .title     = "Hello",
-    .slug      = "hello",
-    .body      = "World",
-    .author_id = 1,
-    .published = false
-);
+kern_qb_t *q = kern_qb_new(db);
+kern_qb_insert(q, "posts");
+kern_qb_set_str(q, "title", "Hello");
+kern_qb_set_str(q, "slug", "hello");
+kern_qb_set_int(q, "author_id", 1);
+int64_t affected = kern_qb_exec(q);
 
-// WHERE conditions
-->where(id, "=", kern_arg_int(42))
-->where(email, "LIKE", kern_arg_str("%@example.com"))
-->where(age, ">", kern_arg_int(18))
-->where(active, "=", kern_arg_bool(true))
+// UPDATE
+kern_qb_t *q = kern_qb_new(db);
+kern_qb_update(q, "posts");
+kern_qb_set_str(q, "title", "Updated");
+kern_qb_where_int(q, "id", "=", 42);
+kern_qb_exec(q);
+
+// DELETE
+kern_qb_t *q = kern_qb_new(db);
+kern_qb_delete(q, "posts");
+kern_qb_where_int(q, "id", "=", 42);
+kern_qb_exec(q);
+
+// Cleanup
+kern_qb_free(q);
+```
+
+### Model Macros *(planned)*
+
+The `KERN_MODEL`, `KERN_INSERT`, and `KERN_COL_*` macros are designed to provide a higher-level DX for defining models and performing CRUD. These are not yet implemented — the query builder above is the current API.
+
+```c
+// Planned API — signatures may change during implementation:
+// KERN_MODEL(post,
+//     KERN_COL_INT(id, PK, AUTOINCREMENT),
+//     KERN_COL_STR(title, NOT_NULL, MAX 200),
+//     KERN_COL_STR(slug, UNIQUE, NOT_NULL),
+//     KERN_COL_TEXT(body),
+//     KERN_COL_INT(author_id, FK(users.id), NOT_NULL),
+//     KERN_COL_BOOL(published, DEFAULT false),
+//     KERN_COL_TIMESTAMP(created_at, DEFAULT NOW),
+//     KERN_COL_TIMESTAMP(updated_at, ON_UPDATE NOW)
+// );
 ```
 
 ### Transactions
@@ -378,8 +404,7 @@ int64_t id = KERN_INSERT(tx, post,
 kern_db_t *db = kern_db_get();
 kern_tx_t *tx = kern_tx_begin(db);
 
-// ... perform operations ...
-int64_t id = KERN_INSERT(tx, user, .email = email, .password_hash = hash);
+// ... perform query builder operations ...
 
 if (error_condition) {
     kern_tx_rollback(tx);
@@ -388,24 +413,6 @@ if (error_condition) {
 
 kern_tx_commit(tx);
 ```
-
-### Model Macros
-
-```c
-// In models/post.h
-KERN_MODEL(post,
-    KERN_COL_INT(id, PK, AUTOINCREMENT),
-    KERN_COL_STR(title, NOT_NULL, MAX 200),
-    KERN_COL_STR(slug, UNIQUE, NOT_NULL),
-    KERN_COL_TEXT(body),
-    KERN_COL_INT(author_id, FK(users.id), NOT_NULL),
-    KERN_COL_BOOL(published, DEFAULT false),
-    KERN_COL_TIMESTAMP(created_at, DEFAULT NOW),
-    KERN_COL_TIMESTAMP(updated_at, ON_UPDATE NOW)
-);
-```
-
-This generates the `post_t` struct and metadata for the query builder.
 
 ---
 
@@ -445,7 +452,7 @@ driver = "memory"        # memory | redis | file
 ### Password Hashing
 
 ```c
-// Hash a password (Argon2id, runs in worker thread)
+// Hash a password (PBKDF2-HMAC-SHA256, 100K iterations, runs in worker thread)
 char *hash = kern_password_hash("plaintext_password");
 
 // Verify a password against a hash
@@ -477,19 +484,19 @@ const char *token = kern_csrf_token(req);
 // when CSRF middleware is active (default for all pages).
 ```
 
-### Authorization
+### Authorization *(planned — v0.3)*
 
 ```c
-// Define a policy
-KERN_POLICY(post_update) {
-    kern_user_t *u = kern_current_user(req);
-    if (!u) return kern_deny("login_required");
-    if (u->id == post->author_id || u->is_admin) return kern_allow();
-    return kern_deny("forbidden");
-}
+// Define a policy *(planned)*
+// KERN_POLICY(post_update) {
+//     kern_user_t *u = kern_current_user(req);
+//     if (!u) return kern_deny("login_required");
+//     if (u->id == post->author_id || u->is_admin) return kern_allow();
+//     return kern_deny("forbidden");
+// }
 
-// Use in a handler
-KERN_AUTHORIZE(req, post_update, post);
+// Use in a handler *(planned)*
+// KERN_AUTHORIZE(req, post_update, post);
 // If denied, automatically returns 403 with the deny reason.
 ```
 
@@ -580,32 +587,32 @@ kern_log_error("db.timeout", KERN_F("query_ms", "%d", ms));
 ## Utility Macros
 
 ```c
-// Template variables shorthand
-KERN_T("key1", val1, "key2", val2, ...)
+// Template variables shorthand *(planned)*
+// KERN_T("key1", val1, "key2", val2, ...)
 
 // Structured log fields
 KERN_F("field_name", "format", value)
 
-// Route registration
+// Route registration *(implemented)*
 KERN_PAGE("/path", handler)
 KERN_GET("/path", handler)
 KERN_POST("/path", handler)
 KERN_PATCH("/path", handler)
 KERN_DELETE("/path", handler)
 
-// Model definition
-KERN_MODEL(name, columns...)
-KERN_COL_INT(name, constraints...)
-KERN_COL_STR(name, constraints...)
-KERN_COL_TEXT(name)
-KERN_COL_BOOL(name, constraints...)
-KERN_COL_TIMESTAMP(name, constraints...)
+// Model definition *(planned)*
+// KERN_MODEL(name, columns...)
+// KERN_COL_INT(name, constraints...)
+// KERN_COL_STR(name, constraints...)
+// KERN_COL_TEXT(name)
+// KERN_COL_BOOL(name, constraints...)
+// KERN_COL_TIMESTAMP(name, constraints...)
 
-// Database insert
-KERN_INSERT(tx, model, .field = value, ...)
+// Database insert *(planned)*
+// KERN_INSERT(tx, model, .field = value, ...)
 
-// Authorization
-KERN_AUTHORIZE(req, policy, resource)
+// Authorization *(planned — v0.3)*
+// KERN_AUTHORIZE(req, policy, resource)
 ```
 
 ---
@@ -625,7 +632,10 @@ typedef struct {
 // Check and handle
 kern_mutation_result_t r = post_create(req, &input);
 if (!r.ok) {
-    return kern_render(req, "posts/new", KERN_T("errors", r.errors, "input", &input));
+    kern_dict_t *vars = kern_dict_new();
+    kern_dict_set(vars, "errors", r.errors);
+    kern_dict_set(vars, "input", &input);
+    return kern_render(req, "posts/new", vars);
 }
 // Success: r.value contains the created post
 ```

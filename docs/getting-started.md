@@ -119,9 +119,7 @@ $ kern db.migrate
 Other database commands:
 
 ```bash
-$ kern db.status           # show migration state
-$ kern db.rollback         # undo last migration
-$ kern db.shell            # open sqlite3 shell
+$ kern db.migrate              # run pending migrations
 ```
 
 ## Start the Development Server
@@ -296,11 +294,8 @@ kern new <name>              # scaffold a new project
 kern dev                     # development server with hot-reload
 kern build                   # production build
 kern test                    # run tests
+kern fmt                     # format C and .khtml files
 kern db.migrate              # run pending migrations
-kern db.rollback             # undo last migration
-kern db.status               # show migration state
-kern db.shell                # open database shell
-kern routes                  # list all registered routes
 kern --help                  # show all available commands
 kern --version               # show version info
 ```
