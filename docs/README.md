@@ -9,6 +9,7 @@
 | [Architecture](architecture.md) | High-level architecture, runtime model, build pipeline, and the three deliverables |
 | [Phase 1 Plan](phase1-plan.md) | Implementation plan for v0.1 — milestones, dependencies, acceptance criteria |
 | [Phases Overview](phases-overview.md) | All phases from v0.1 through v0.7 + post-v0.7 roadmap |
+| [Phase 2.1 Plan](phase2.1-bootstrap.md) | Bootstrap CSS — replace Tailwind, embed Bootstrap 5 in libkern |
 | [API Reference](api-reference.md) | Public API surface for kern.h: types, request/response, router, DB, sessions, config |
 | [Getting Started](getting-started.md) | How to use `kern new`, `kern dev`, `kern build` |
 | [Project Layout](project-layout.md) | Convention-based folder structure for kern apps |
@@ -37,4 +38,4 @@
 
 ## Status
 
-kern v0.2 is shipped. v0.3 (Production Readiness) is next. See [Phases Overview](phases-overview.md) for the full roadmap.
+kern v0.2 is shipped. v2.1 (Bootstrap CSS — replace Tailwind) is next. See [Phases Overview](phases-overview.md) for the full roadmap.

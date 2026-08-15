@@ -31,11 +31,30 @@ This document describes the full roadmap from initial proof-of-concept to stable
 **Delivers:**
 - `kern fmt` - code formatter for C and `.khtml` files
 - `kern test` - test framework with unit and integration support
-- Tailwind v4 CSS compilation (C implementation, no Node)
 - Shards system — HTMX-style fetch-and-swap interactivity (user clicks, browser fetches HTML fragment, swaps DOM)
 - `kern-shards.js` runtime (~10 KB, vanilla ES2020, zero dependencies)
 
 **Status:** Shipped.
+
+---
+
+## v2.1 - Bootstrap CSS (Replace Tailwind)
+
+**Goal:** Remove the custom Tailwind CSS compiler. Ship Bootstrap 5 as the default CSS framework — zero maintenance, ready-to-use components, known by both developers and AI agents.
+
+**Background:** v0.2 shipped a C-implemented Tailwind JIT compiler (~800 lines). The original plan was to build a custom component library on top (shadcn-style). This is not feasible for a solo maintainer. Bootstrap gives us a production-grade component library for free.
+
+**Delivers:**
+- Remove `kern_tailwind.c` and all Tailwind compilation from the build pipeline
+- Embed Bootstrap 5.3.x minified CSS + JS in libkern (compiled into the binary, gzip-served)
+- Auto-mount at `/assets/bootstrap.min.css` and `/assets/bootstrap.bundle.min.js`
+- `kern_bootstrap_serve()` — serves Bootstrap with correct Content-Type, gzip encoding, and immutable cache headers
+- Update `kern new` scaffold: Bootstrap-based layout, Bootstrap utility classes in templates
+- Remove `assets.tailwind` config key
+
+**Why a micro-phase:** This is a backwards-incompatible change to the asset pipeline and scaffolding. Shipping it between v0.2 and v0.3 avoids carrying Tailwind debt into the production-readiness phase. It's a clean swap: remove compiler, embed static files, update templates.
+
+**Status:** Planned. See [Phase 2.1 Plan](phase2.1-bootstrap.md) for full implementation details.
 
 ---
 
@@ -155,11 +174,12 @@ These items are planned but not committed to a specific version. They will be pr
 ```
 v0.1 (Core) ✅
   └── v0.2 (DX) ✅
-        └── v0.3 (Production)
-              └── v0.4 (Dashboard MVP)
-                    └── v0.5 (Dashboard Polish + SSE)
-                          └── v0.6 (Modern Protocols)
-                                └── v0.7 (Stable)
+        └── v2.1 (Bootstrap CSS)
+              └── v0.3 (Production)
+                    └── v0.4 (Dashboard MVP)
+                          └── v0.5 (Dashboard Polish + SSE)
+                                └── v0.6 (Modern Protocols)
+                                      └── v0.7 (Stable)
 ```
 
 Each phase is designed to be independently shippable. Users can start building real apps at v0.1, deploy at v0.3, and manage a fleet at v0.4. Later phases add polish and protocol upgrades, but the core experience is complete early.

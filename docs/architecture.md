@@ -118,7 +118,7 @@ kern dev / kern build
   ├── scan pages/        → generate pages/_registry.c (route table)
   ├── scan views/        → compile *.khtml → build/views/*.c (Pug to C)
   ├── scan assets/       → hash → emit public/assets/<name>-<hash>.<ext>
-  ├── run tailwind       → compile CSS (no Node, C-implemented scanner)
+  ├── serve bootstrap    → embedded minified CSS + JS (gzip, immutable cache)
   ├── scan db/migrations → track migration state
   ├── invoke cc / clang  → link against libkern, sqlite3, libuv
   └── output: dist/myapp (single binary) + public/ (static assets)

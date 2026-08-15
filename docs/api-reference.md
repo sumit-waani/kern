@@ -104,7 +104,7 @@ kern_config_t *cfg = kern_config_load("kern.toml");
 // Access values
 const char *name = kern_config_get_str("app.name");
 int port         = kern_config_get_int("app.port");
-bool tailwind    = kern_config_get_bool("assets.tailwind");
+bool minify     = kern_config_get_bool("assets.minify");
 
 // Environment variable access
 const char *secret = kern_env("MYAPP_SECRET");       // NULL if unset
@@ -552,7 +552,6 @@ ttl      = 604800
 driver   = "memory"
 
 [assets]
-tailwind = true
 minify   = true
 
 [logging]

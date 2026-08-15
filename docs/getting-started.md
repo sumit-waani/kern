@@ -97,7 +97,6 @@ ttl      = 604800
 driver   = "memory"
 
 [assets]
-tailwind = true
 minify   = true
 
 [logging]

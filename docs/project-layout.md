@@ -75,7 +75,7 @@ myapp/
 |   +-- password_reset.ktxt
 +-- assets/                    # source assets (pre-hash)
 |   +-- css/
-|   |   +-- app.css            # tailwind entry point
+|   |   +-- app.css            # custom CSS (loaded after Bootstrap)
 |   |   +-- admin.css
 |   +-- js/
 |   |   +-- app.js
@@ -253,7 +253,9 @@ static kern_result_t send_welcome_email(kern_job_t *job) {
 
 Pre-build source files. Everything here gets fingerprinted (hashed) during build and emitted to `public/assets/`.
 
-- `assets/css/` - CSS files (Tailwind entry point)
+Bootstrap CSS and JS are served automatically by the runtime at `/assets/bootstrap.min.css` and `/assets/bootstrap.bundle.min.js` — no build step required. Only custom assets need to be placed here.
+
+- `assets/css/` - Custom CSS files (loaded after Bootstrap)
 - `assets/js/` - JavaScript files
 - `assets/img/` - Images
 
