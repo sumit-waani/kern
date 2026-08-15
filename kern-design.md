@@ -17,7 +17,7 @@
 6. [Templating — the `.khtml` engine](#6-templating--the-khtml-engine)
 7. [Project conventions & folder layout](#7-project-conventions--folder-layout)
 8. [Routing — file-system first](#8-routing--file-system-first)
-9. [Reactivity without WASM — the shard model](#9-reactivity-without-wasm--the-shard-model)
+9. [Reactivity — shards (HTMX-style) + SSE](#9-reactivity--shards-htmx-style--sse)
 10. [Database — SQLite by default, Postgres optional](#10-database--sqlite-by-default-postgres-optional)
 11. [Auth, sessions, security](#11-auth-sessions-security)
 12. [Mailer, queue, scheduler, jobs](#12-mailer-queue-scheduler-jobs)
@@ -63,7 +63,7 @@ It targets the same developer who reaches for Rails or Lucky, but who would rath
 | In | Out |
 |---|---|
 | Server-side rendered apps | SPAs / WASM / heavy client reactivity |
-| HTTP/1.1, HTTP/2 | HTTP/3 (QUIC), WebSocket-first apps (WS supported, not optimized) |
+| HTTP/1.1, HTTP/2, SSE for server push | HTTP/3 (QUIC), WebSocket (post-v0.7) |
 | SQLite, PostgreSQL | MongoDB, Redis-as-primary (Redis supported for cache/queue only) |
 | Single-VPS deployment via dashboard | Multi-region / k8s / multi-host federation (out of scope) |
 | Linux server (dashboard) | Windows server (macOS dev supported, Windows dev best-effort) |
@@ -78,7 +78,7 @@ I chose **what to copy** from each of the four references you mentioned.
 
 | Pattern | Source | Why |
 |---|---|---|
-| SSR-only, async components, file-system routing, HTMX-style "shards" for reactivity, no client build step, shadcn-style copy-in components, asset hash pipeline, request memoization | **Topcoat** (Rust) | This is the *exact* DX target. No WASM, no API layer, no Node toolchain. C gets the same story with even less runtime cost. |
+| SSR-only, async components, file-system routing, no client build step, shadcn-style copy-in components, asset hash pipeline, request memoization | **Topcoat** (Rust) | This is the *exact* DX target. No WASM, no API layer, no Node toolchain. C gets the same story with even less runtime cost. (Note: Topcoat uses WebSocket-based shards; kern uses HTMX-style fetch/swap + SSE — simpler, stateless, no persistent connection needed.) |
 | **Compile-time Pug-style templates**, fiber-style "looks synchronous" API, JSON/HTML form auto-binding from data classes, OpenSSL-or-Botan TLS abstraction | **Vibe.d** (D) | C has no CTFE. We *emulate* it with a build-time template compiler (the `kern` CLI) that emits C. End result: zero runtime template cost, like Vibe's Diet. |
 | **Strict folder conventions** (`pages/`, `queries/`, `mutations/`, `components/`, `models/`), "action must end with render/redirect", `lucky dev` watch mode, `lucky exec` REPL, opinionated scaffolding | **Lucky** (Crystal) | The convention-over-configuration muscle. C is weak on metaprogramming, so the *folder layout is the contract*. Lucky nailed this. |
 | Single-`curl` install, file-system routing layout style, declarative components, static site generation path | **Ziex** (Zig) | Light-touch CLI, opinionated install, clean project bootstrap. |
@@ -161,7 +161,7 @@ kernd =  a daemon (kernd)              — VPS-wide app manager + reverse proxy
 | `libkern` (shared C lib) | compiled into each app | HTTP server, router, templating runtime, DB, auth, mailer, queue, sessions, logging |
 | `kern` CLI | user's dev machine | scaffold, dev server, build, test, fmt, REPL, asset hashing, Tailwind compile, template compile |
 | `kernd` dashboard | VPS, runs as root | install target, app lifecycle, reverse proxy, cgroups, logs, stats, backups, Cloudflare |
-| `kern-shards.js` (optional) | served as static asset | 10 KB runtime for HTMX-style server-rendered interactivity |
+| `kern-shards.js` (optional) | served as static asset | 10 KB runtime for HTMX-style fetch-and-swap interactivity |
 
 ### Build pipeline
 
@@ -232,8 +232,7 @@ The coroutine switch is ~50 ns on x86_64. There's no GC, no allocation in the ho
 
 - HTTP/1.1 + keep-alive. HTTP/2 in v0.6. HTTP/3 (QUIC) is out of scope for v0.7.
 - TLS via mbedTLS (lightweight, embed-friendly, Apache 2.0). mbedTLS gives us a single `.a` we can statically link.
-- WebSocket support (RFC 6455).
-- SSE (server-sent events) for "shard" streams.
+- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards. One-way: server pushes HTML fragments to the browser via `EventSource`. User actions still use normal HTTP fetch (shards).
 - Static file serving with `sendfile(2)`, range requests, ETag, brotli/gzip.
 - Graceful shutdown — finish in-flight requests on `SIGTERM`.
 - Per-IP rate limit, per-route rate limit (token bucket, in-memory + optional Redis).
@@ -674,13 +673,39 @@ void kern_register_all_routes(kern_router_t *r) {
 
 ---
 
-## 9. Reactivity without WASM — the shard model
+## 9. Reactivity — shards (HTMX-style) + SSE
 
-Topcoat nailed this. We copy the idea. No WebAssembly, no client build step, no Node.
+No WebAssembly, no client build step, no Node. Two complementary patterns that cover all reactivity needs for small-to-mid web apps.
 
-### 9.1 The principle
+### 9.1 The two patterns
 
-Most interactivity should be: the user does something → the browser makes a fetch → the server re-renders a fragment → the browser swaps it in. Like HTMX, like Phoenix LiveView, like Topcoat shards.
+kern reactivity has two independent layers:
+
+**Shards (HTMX-style fetch/swap)** — for user-initiated actions:
+```
+User clicks button → browser fetches URL → server returns HTML fragment → browser swaps it into DOM
+```
+Stateless HTTP. No persistent connection. Just a regular request that returns HTML instead of a full page.
+
+**SSE (Server-Sent Events)** — for server-pushed updates:
+```
+Server has new data → pushes HTML fragment over SSE → browser swaps it into DOM
+```
+One-way persistent connection. Server pushes, browser receives. User actions still go through normal HTTP (shards or regular forms).
+
+These two cover every common interactive pattern:
+
+| Use case | Pattern |
+|---|---|
+| Like button, form submit, delete | Shard (fetch/swap) |
+| Live dashboard metrics | SSE stream |
+| Notification toast | SSE event |
+| Chat (receive messages) | SSE event |
+| Chat (send message) | Normal POST → server broadcasts via SSE |
+| Infinite scroll | Shard with `data-shard-trigger="revealed"` |
+| Search-as-you-type | Shard with `data-shard-trigger="input"` |
+
+**What kern does NOT do:** WebSocket-based bidirectional reactivity (Phoenix LiveView, Topcoat shards). WebSocket requires persistent two-way state, custom protocol framing, and significant server complexity. It's out of scope for v0.7. See the post-v0.7 roadmap if you genuinely need it (collaborative editing, gaming).
 
 ### 9.2 Server side: a shard handler
 
@@ -698,38 +723,51 @@ static kern_response_t *post_comments_shard(kern_req_t *req) {
 }
 ```
 
-A shard returns a **fragment** (no `<html>`, no layout). The runtime JS swaps it in.
+A shard returns a **fragment** (no `<html>`, no layout). The runtime JS swaps it in. This is exactly how HTMX works — the server returns a chunk of HTML, the client puts it where it belongs.
 
 ### 9.3 Client side: 10 KB of `kern-shards.js`
 
 - Zero dependencies. Vanilla ES2020.
 - Loaded once: `<script src="/assets/shards.js" defer></script>` in the base layout.
-- Two directives:
-  - `data-shard="<url>"` on any element. When an event fires (default: `click` for buttons, `submit` for forms, `input` for `data-shard-trigger="input"`), fetch the URL, replace the target.
+- Attributes (HTMX-style):
+  - `data-shard="<url>"` on any element. When an event fires, fetch the URL, replace the target.
   - `data-shard-target="<selector>"` — where to swap the response.
-  - `data-shard-swap="outer|inner|before|after|append|prepend"` — like HTMX.
-  - `data-shard-trigger="click|submit|input|load|revealed"` — event.
-  - `data-shard-confirm="Delete?"` — confirm prompt.
-  - `data-shard-on="ws"` — open a WebSocket for live updates (server sends shard fragments over WS).
+  - `data-shard-swap="outer|inner|before|after|append|prepend"` — swap mode.
+  - `data-shard-trigger="click|submit|input|load|revealed"` — event to listen for.
+  - `data-shard-confirm="Delete?"` — confirm prompt before firing.
+  - `data-shard-indicator="<selector>"` — loading indicator.
+  - `data-shard-headers='{"X-Custom":"value"}'` — extra request headers.
 
-### 9.4 Server-sent updates (the "shard stream")
+### 9.4 SSE: server-pushed updates
 
-For live data (chat, dashboards), the shard can be a long-lived stream:
+For live data (chat, dashboards, notifications), SSE provides one-way server push:
 
 ```c
-KERN_SHARD_STREAM("/dashboard/metrics", metrics_stream);
+KERN_SSE("/dashboard/metrics", metrics_stream);
 
 static kern_response_t *metrics_stream(kern_req_t *req) {
     kern_sse_t *sse = kern_sse_open(req);
     while (kern_sse_alive(sse)) {
         kern_sse_send(sse, "metrics", render_metrics());
+        kern_sse_flush(sse);
         kern_sleep_ms(1000);
     }
     return kern_sse_close(sse);
 }
 ```
 
-The shard runtime on the client opens an EventSource and swaps the element as events arrive.
+Client-side, `kern-shards.js` supports SSE streams with a `data-shard-stream` attribute:
+
+```html
+<div id="metrics"
+     data-shard-stream="/dashboard/metrics"
+     data-shard-event="metrics"
+     data-shard-swap="inner">
+  <!-- server pushes HTML fragments here -->
+</div>
+```
+
+The client opens an `EventSource`, listens for events, and swaps the received HTML into the target element. No custom JS needed.
 
 ### 9.5 When you really need vanilla JS
 
@@ -1109,7 +1147,6 @@ require_email_verification = false
 
 [shards]
 enabled = true                          # include kern-shards.js in base layout
-ws      = true                          # enable WebSocket shard streams
 
 [scheduler]
 # see section 12.3
@@ -1773,6 +1810,7 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 - Authorization policies.
 - `kern doctor`.
 - Rate limiting.
+- SSE (Server-Sent Events) — built-in server push for live updates.
 
 ### v0.4 — dashboard MVP
 - kernd install script.
@@ -1791,7 +1829,6 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 
 ### v0.6 — modern protocols
 - HTTP/2.
-- WebSocket shard streams (polished, production-ready).
 - Zero-downtime deploys (pre-start hook).
 
 ### v0.7 — stable
@@ -1813,6 +1850,7 @@ Post-v0.7 (public roadmap):
 - kernd-to-kernd federation (cluster view across VPSes).
 - `kernd ha` for active-passive kernd clusters.
 - HTTP/3 (QUIC) support.
+- WebSocket support (for apps that need bidirectional real-time: collaborative editing, gaming).
 - VSCode extension (LSP for C + `.khtml`).
 - Neovim plugin.
 - Helm chart for Kubernetes users.
@@ -1833,7 +1871,7 @@ Post-v0.7 (public roadmap):
 | Templating | compile-time Pug | macro `view!` | CTFE Diet | macro `render` | JSX-in-Zig |
 | DB default | SQLite | Toasty ORM | MongoDB/Redis | PostgreSQL | n/a (no default) |
 | Async model | fibers | Tokio | fibers | fibers (Crystal) | async fn |
-| Reactivity | shards (HTMX) | macro to JS | SSE/WebSocket | LiveView (via LuckyLive) | none |
+| Reactivity | shards (HTMX-style fetch/swap) + SSE | macro to JS | SSE/WebSocket | LiveView (via LuckyLive) | none |
 | File-system routing | yes | yes (auto-discover) | no (router table) | yes (manual) | yes |
 | Hot reload | yes (dlopen) | yes (cargo) | yes (dub) | yes (lucky dev) | yes |
 | UI library | shadcn-style | shadcn-style (Topcoat UI) | none built-in | none built-in | none built-in |

@@ -32,8 +32,8 @@ This document describes the full roadmap from initial proof-of-concept to stable
 - `kern fmt` - code formatter for C and `.khtml` files
 - `kern test` - test framework with unit and integration support
 - Tailwind v4 CSS compilation (C implementation, no Node)
-- Shards system (HTMX-style server-rendered interactivity)
-- `kern-shards.js` runtime (~10 KB, vanilla ES2020)
+- Shards system — HTMX-style fetch-and-swap interactivity (user clicks, browser fetches HTML fragment, swaps DOM)
+- `kern-shards.js` runtime (~10 KB, vanilla ES2020, zero dependencies)
 
 **Status:** Shipped.
 
@@ -51,8 +51,9 @@ This document describes the full roadmap from initial proof-of-concept to stable
 - Authorization policies (`KERN_POLICY`, `KERN_AUTHORIZE`)
 - `kern doctor` - project diagnostics
 - Per-IP and per-route rate limiting (token bucket)
+- SSE (Server-Sent Events) — built-in server push for live updates, notifications, dashboards
 
-**Why third:** A real app needs to send emails (signups, password resets), run background jobs (cleanup, notifications), and handle authorization beyond "is the user logged in?" Postgres support unlocks apps that need concurrent writes. Rate limiting hardens the app for public traffic. These are pre-requisites for any production deployment.
+**Why third:** A real app needs to send emails (signups, password resets), run background jobs (cleanup, notifications), and handle authorization beyond "is the user logged in?" Postgres support unlocks apps that need concurrent writes. Rate limiting hardens the app for public traffic. SSE enables live features (notifications, dashboards, activity feeds) without the complexity of WebSockets. These are pre-requisites for any production deployment.
 
 ---
 
@@ -95,7 +96,6 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 **Delivers:**
 - HTTP/2 support (multiplexing, header compression)
-- WebSocket shard streams (polished, production-ready)
 - Zero-downtime deploys (pre-start hook: warm new process on a different port before swap)
 
 **Why sixth:** HTTP/2 improves performance for multi-resource loads but is not required for correctness. By this point, kern apps are production-proven on HTTP/1.1. Adding HTTP/2 here means the ecosystem is stable enough to handle the complexity, and the testing infrastructure (from v0.2) can verify the new paths. Zero-downtime deploys are critical for apps serving real traffic — no user should see a 502 during a deploy.
@@ -136,6 +136,7 @@ These items are planned but not committed to a specific version. They will be pr
 - kernd-to-kernd federation (cluster view across VPSes)
 - `kernd ha` for active-passive kernd clusters
 - HTTP/3 (QUIC) support
+- WebSocket support (for apps that genuinely need bidirectional real-time: collaborative editing, gaming)
 
 **Infrastructure & Ecosystem:**
 - VSCode extension (LSP for C + `.khtml` syntax highlighting)
