@@ -1255,36 +1255,6 @@ size_t kern_shards_js_len(void);
 kern_response_t *kern_shards_js_serve(kern_req_t *req);
 
 /* ============================================================
- * Tailwind CSS Compiler API (kern_tailwind.c)
- * ============================================================ */
-
-/**
- * Scan content for Tailwind class name tokens.
- * Extracts tokens split by whitespace, quotes, and template delimiters.
- * Stores unique class names in the buffer (newline-separated).
- * Returns 0 on success, -1 on error.
- */
-int kern_tw_scan(const char *content, size_t len, kern_buf_t *classes);
-
-/**
- * Scan a file for Tailwind class name tokens.
- * Returns 0 on success, -1 on error.
- */
-int kern_tw_scan_file(const char *path, kern_buf_t *classes);
-
-/**
- * Compile newline-separated class names into CSS.
- * Returns 0 on success, -1 on error.
- */
-int kern_tw_compile(const char *classes, kern_buf_t *css);
-
-/**
- * Compile class names and write resulting CSS to a file.
- * Returns 0 on success, -1 on error.
- */
-int kern_tw_compile_to_file(const char *classes, const char *output_path);
-
-/* ============================================================
  * Password Auth API (kern_auth.c)
  * ============================================================ */
 

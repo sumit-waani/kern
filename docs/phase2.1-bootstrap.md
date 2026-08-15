@@ -51,13 +51,13 @@ v0.2 shipped a custom Tailwind v4 CSS compiler written in C (`kern_tailwind.c`, 
 
 ### Step 1: Remove Tailwind
 
-- [ ] Delete `src/kern_tailwind.c`
-- [ ] Delete `tests/test_tailwind.c`
-- [ ] Remove `kern_tw_*` declarations from `include/kern.h`
-- [ ] Remove Tailwind compilation step from `cli/cmd_build.c`
-- [ ] Remove `assets.tailwind` from `kern.toml` template in `cli/cmd_new.c`
-- [ ] Remove Tailwind-related test entries from test runner
-- [ ] Verify `kern build` works without Tailwind step
+- [x] Delete `src/kern_tailwind.c`
+- [x] Delete `tests/test_tailwind.c`
+- [x] Remove `kern_tw_*` declarations from `include/kern.h`
+- [x] Remove Tailwind compilation step from `cli/cmd_build.c`
+- [x] Remove `assets.tailwind` from `kern.toml` template in `cli/cmd_new.c` (was already absent)
+- [x] Remove Tailwind-related test entries from CMakeLists.txt
+- [x] Verify `kern build` works without Tailwind step
 
 ### Step 2: Embed Bootstrap
 
