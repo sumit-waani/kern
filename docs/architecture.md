@@ -14,7 +14,7 @@ kern  =  libkern  (C library)     - the framework runtime
 
 ### 1. libkern - The Framework Runtime
 
-A C11 shared library (~30 KLOC at v1.0) with a single public header `<kern.h>`. This is what every kern app links against.
+A C11 shared library (~30 KLOC at v0.7) with a single public header `<kern.h>`. This is what every kern app links against.
 
 **Responsibilities:**
 - HTTP/1.1 server with keep-alive

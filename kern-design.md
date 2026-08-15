@@ -2,7 +2,7 @@
 
 > *One binary per app. One command to ship. One dashboard to run your fleet.*
 
-**Status:** Design specification, v1.0 draft
+**Status:** Design specification, v0.7 draft
 **Audience:** Systems-side developers who want the productivity of Rails/Lucky/Phoenix without leaving the C runtime.
 
 ---
@@ -58,14 +58,14 @@ It targets the same developer who reaches for Rails or Lucky, but who would rath
 - a toolchain that doesn't change under their feet
 - a dashboard for shipping to a VPS without learning Kubernetes, nginx, systemd unit files, and Let's Encrypt acme.sh
 
-### Scope (v1.0)
+### Scope (v0.7)
 
 | In | Out |
 |---|---|
 | Server-side rendered apps | SPAs / WASM / heavy client reactivity |
-| HTTP/1.1, HTTP/2, HTTP/3 (later) | WebSocket-first apps (WS supported, not optimized) |
+| HTTP/1.1, HTTP/2 | HTTP/3 (QUIC), WebSocket-first apps (WS supported, not optimized) |
 | SQLite, PostgreSQL | MongoDB, Redis-as-primary (Redis supported for cache/queue only) |
-| Single-VPS deployment via dashboard | Multi-region / k8s (out of scope; horizontal scale is "run more VPSes") |
+| Single-VPS deployment via dashboard | Multi-region / k8s / multi-host federation (out of scope) |
 | Linux server (dashboard) | Windows server (macOS dev supported, Windows dev best-effort) |
 | Tailwind v4, hand-written CSS | SASS/Less (Tailwind is the default; you can skip it) |
 | Cron-style jobs, queue | Long-lived stream processors |
@@ -181,7 +181,7 @@ kern dev / kern build
 
 ## 5. The Core Framework — `libkern`
 
-A C11 shared library, ~30 KLOC at v1.0, single header `<kern.h>` for user code.
+A C11 shared library, ~30 KLOC at v0.7, single header `<kern.h>` for user code.
 
 ### 5.1 Language & standards
 
@@ -230,7 +230,7 @@ The coroutine switch is ~50 ns on x86_64. There's no GC, no allocation in the ho
 
 ### 5.4 HTTP server (`kern.io`)
 
-- HTTP/1.1 + keep-alive. HTTP/2 in v0.7, HTTP/3 in v1.0.
+- HTTP/1.1 + keep-alive. HTTP/2 in v0.6. HTTP/3 (QUIC) is out of scope for v0.7.
 - TLS via mbedTLS (lightweight, embed-friendly, Apache 2.0). mbedTLS gives us a single `.a` we can statically link.
 - WebSocket support (RFC 6455).
 - SSE (server-sent events) for "shard" streams.
@@ -536,7 +536,7 @@ myapp/
 |---|---|---|
 | `pages/` | One `.c` file per URL segment. Defines a `KERN_PAGE(...)` symbol. | Business logic. Use `queries/`, `mutations/`, `models/`. |
 | `views/` | Templates only. | C code. |
-| `models/` | DB-backed structs and their lifecycle (create, update, delete, validate). | Business rules across multiple models (use `services/` if needed, v0.5+). |
+| `models/` | DB-backed structs and their lifecycle (create, update, delete, validate). | Business rules across multiple models (use `services/` if needed). |
 | `queries/` | Pure read operations. Take a `kern_db_t *tx`, return a struct or list. | Side effects. |
 | `mutations/` | Pure write operations. Take user input, validate, run in a transaction, return a result struct. | Reads (use `queries/`). |
 | `middleware/` | Cross-cutting concerns. | Request handlers. |
@@ -1232,7 +1232,7 @@ $ kern ui add button
 ✓ docs/ui/button.md
 ```
 
-Available at v1.0: button, card, modal, dropdown, tabs, table, form-field, toast, avatar, badge, input, textarea, select, checkbox, radio, switch, breadcrumb, pagination, tooltip, alert, dialog, accordion, separator, sheet, command, popover, calendar, date-picker, code-block, kbd, skeleton, progress, slider, toggle, toggle-group.
+Available at v0.7: button, card, modal, dropdown, tabs, table, form-field, toast, avatar, badge, input, textarea, select, checkbox, radio, switch, breadcrumb, pagination, tooltip, alert, dialog, accordion, separator, sheet, command, popover, calendar, date-picker, code-block, kbd, skeleton, progress, slider, toggle, toggle-group.
 
 All built on Tailwind. No JS, except where interactivity is needed (then they emit a shard or a small inline script).
 
@@ -1372,7 +1372,7 @@ Deploy is:
 5. Rotate logs.
 6. Send "deploy complete" notification.
 
-**Zero downtime** for trivial updates, via the SIGTERM-then-SIGKILL flow. The reverse proxy stops routing to the app only during the 1-2 second restart window. (For bigger apps: kernd supports a `pre_start` hook that warms the new process on a different port before the swap — v0.7+.)
+**Zero downtime** for trivial updates, via the SIGTERM-then-SIGKILL flow. The reverse proxy stops routing to the app only during the 1-2 second restart window. (For bigger apps: kernd supports a `pre_start` hook that warms the new process on a different port before the swap — v0.6+.)
 
 ### 16.7 Reverse proxy (host-header routing)
 
@@ -1472,7 +1472,7 @@ If not configured, the apps just work over HTTPS using kernd's own Let's Encrypt
 ### 16.14 Security of kernd itself
 
 - TLS required. Self-signed default cert at install (for the first login over the VPS IP) — replaced by Let's Encrypt as soon as a domain is set.
-- bcrypt for the admin password (Argon2id in v0.5+).
+- bcrypt for the admin password (Argon2id planned).
 - Session cookies with `__Host-` prefix.
 - Per-app PATs are encrypted at rest with a key derived from `DASHBOARD_SECRET`.
 - All env vars and PATs are encrypted with libsodium's secretbox.
@@ -1533,7 +1533,7 @@ They don't install anything. They visit a URL. That URL is served by kernd, whic
 
 **shadcn/ui for kern.** Each component is a `.khtml` template + an optional `.c` helper. You copy them into your project. You own them. Modify freely. Future updates are opt-in.
 
-### 18.2 Default component set (v1.0)
+### 18.2 Default component set (v0.7)
 
 Buttons, cards, modals, dropdowns, tabs, tables, form fields, toasts, avatars, badges, inputs, textareas, selects, checkboxes, radios, switches, breadcrumbs, pagination, tooltips, alerts, dialogs, accordions, separators, sheets, command palettes, popovers, calendars, date pickers, code blocks, keyboard hints, skeletons, progress bars, sliders, toggles, toggle groups.
 
@@ -1753,7 +1753,7 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 
 ## 23. Roadmap
 
-### v0.1 — proof of core
+### v0.1 — proof of core ✅
 - HTTP/1.1 server, radix router, file-system routing.
 - `.khtml` compiler → C.
 - SQLite driver, query builder, migrations.
@@ -1761,19 +1761,17 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 - Asset hashing.
 - `kern new`, `kern dev`, `kern build`.
 
-### v0.2 — DX
-- `kern fmt`, `kern test`, `kern exec`.
+### v0.2 — DX ✅
+- `kern fmt`, `kern test`.
 - Tailwind v4 compile (C implementation).
-- shadcn-style UI library: button, card, input, form-field, alert.
 - Shards (HTMX-style).
-- Documentation site.
 
 ### v0.3 — production
 - Mailer (SMTP, log driver).
 - Queue + scheduler.
 - Postgres driver.
 - Authorization policies.
-- `kern doctor`, `kern audit`.
+- `kern doctor`.
 - Rate limiting.
 
 ### v0.4 — dashboard MVP
@@ -1790,40 +1788,35 @@ We publish a `kern bench` command that runs `wrk`-style benchmarks against a ker
 - Stats + graphs.
 - Update mechanism.
 - Per-app env var + secrets UI.
-- Replicas.
 
-### v0.6 — scaling + multi-host
-- Redis session/queue drivers.
-- Multi-replica app management.
-- kernd → kernd federation (cluster view).
-
-### v0.7 — beyond HTTP/1.1
+### v0.6 — modern protocols
 - HTTP/2.
-- WebSocket shard streams (already in 0.5 but polished here).
-- HTTP/3 (QUIC) — experimental.
+- WebSocket shard streams (polished, production-ready).
+- Zero-downtime deploys (pre-start hook).
 
-### v0.8 — operator happiness
-- `kern new --template <name>` (blog, SaaS, API, admin).
-- Helm chart for k8s users (we don't recommend it but we'll provide).
-- Terraform module for AWS / Hetzner / DO.
-
-### v0.9 — ecosystem
-- VSCode extension (LSP for C + `.khtml`).
-- Neovim plugin.
-- `kern new --ai-template` — prebuilt AI chat app template.
-
-### v1.0 — stable
+### v0.7 — stable
 - API stable.
 - Docs complete.
+- Project templates (`kern new --template <name>`).
 - Migration guides from Rails, Phoenix, Laravel.
 - Production case studies (3+ real users).
+- Performance benchmarks published.
+- Security audit completed.
 
-Post-1.0 (public roadmap):
+Post-v0.7 (public roadmap):
 - Alternative DBs (libSQL/Turso, MySQL).
 - Built-in static site generation.
 - Plugin registry (kern plugins vs. kernd plugins).
 - Web-based admin generator (like `rails_admin`).
+- Multi-replica support per app.
+- Redis session/queue drivers.
+- kernd-to-kernd federation (cluster view across VPSes).
 - `kernd ha` for active-passive kernd clusters.
+- HTTP/3 (QUIC) support.
+- VSCode extension (LSP for C + `.khtml`).
+- Neovim plugin.
+- Helm chart for Kubernetes users.
+- Terraform module for AWS / Hetzner / DigitalOcean.
 
 ---
 
@@ -1846,7 +1839,7 @@ Post-1.0 (public roadmap):
 | UI library | shadcn-style | shadcn-style (Topcoat UI) | none built-in | none built-in | none built-in |
 | Dashboard | **kernd** | none | none | none | none |
 | Single-install VPS deploy | **yes** | no | no | no | no |
-| Maturity | v1.0 target | pre-1.0 | mature | mature | very early |
+| Maturity | v0.7 target | pre-1.0 | mature | mature | very early |
 
 **The unique thing kern brings to the table is the dashboard.** No other framework on this list ships a first-class "install one binary on a VPS, deploy apps with a click" experience. Topcoat comes closest in core framework quality, but stops at "give you a CLI". kern goes all the way to "ship your fleet without learning nginx, systemd, cgroups, and Let's Encrypt acme.sh".
 

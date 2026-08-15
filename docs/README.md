@@ -8,7 +8,7 @@
 |----------|-------------|
 | [Architecture](architecture.md) | High-level architecture, runtime model, build pipeline, and the three deliverables |
 | [Phase 1 Plan](phase1-plan.md) | Detailed implementation plan for v0.1 with milestones, dependencies, and acceptance criteria |
-| [Phases Overview](phases-overview.md) | All phases from v0.1 through v1.0 at summary level |
+| [Phases Overview](phases-overview.md) | All phases from v0.1 through v0.7 at summary level |
 | [API Reference](api-reference.md) | Public API surface for v0.1: kern.h types, request/response, router, DB, sessions, config |
 | [Getting Started](getting-started.md) | How to use `kern new`, `kern dev`, `kern build` |
 | [Project Layout](project-layout.md) | Convention-based folder structure for kern apps |

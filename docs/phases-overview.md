@@ -1,10 +1,10 @@
-# Phases Overview (v0.1 through v1.0)
+# Phases Overview (v0.1 through v0.7)
 
 This document describes the full roadmap from initial proof-of-concept to stable release. Each phase builds on the previous one, and the ordering is intentional: earlier phases establish foundations that later phases depend upon.
 
 ---
 
-## v0.1 - Proof of Core
+## v0.1 - Proof of Core ✅
 
 **Goal:** Demonstrate that a batteries-included C web framework is viable by delivering the minimum end-to-end experience.
 
@@ -20,25 +20,22 @@ This document describes the full roadmap from initial proof-of-concept to stable
 - Asset fingerprinting (content-hash pipeline)
 - `kern new`, `kern dev`, `kern build` CLI commands
 
-**Why first:** Everything else depends on having a working HTTP server, router, template engine, and database layer. This phase proves the architecture works end-to-end. Without it, no other feature can be demonstrated or tested in a real app context.
+**Status:** Shipped.
 
 ---
 
-## v0.2 - Developer Experience
+## v0.2 - Developer Experience ✅
 
 **Goal:** Make daily development pleasant and productive. Polish the tools, add testing, and deliver the first interactive features.
 
 **Delivers:**
 - `kern fmt` - code formatter for C and `.khtml` files
 - `kern test` - test framework with unit and integration support
-- `kern exec` - REPL for interactive exploration (embedded Lua)
 - Tailwind v4 CSS compilation (C implementation, no Node)
-- shadcn-style UI component library: button, card, input, form-field, alert
 - Shards system (HTMX-style server-rendered interactivity)
 - `kern-shards.js` runtime (~10 KB, vanilla ES2020)
-- Documentation site
 
-**Why second:** Once the core works, developers need quality-of-life tools. Formatting, testing, and the REPL make iteration fast. Tailwind and UI components make apps look good without custom CSS. Shards add interactivity without a JS build step. These are the features that make people want to keep using kern after the initial "hello world."
+**Status:** Shipped.
 
 ---
 
@@ -53,10 +50,9 @@ This document describes the full roadmap from initial proof-of-concept to stable
 - PostgreSQL driver (via libpq)
 - Authorization policies (`KERN_POLICY`, `KERN_AUTHORIZE`)
 - `kern doctor` - project diagnostics
-- `kern audit` - security audit
 - Per-IP and per-route rate limiting (token bucket)
 
-**Why third:** A real app needs to send emails (signups, password resets), run background jobs (cleanup, notifications), and handle authorization beyond "is the user logged in?" Postgres support unlocks apps that need concurrent writes. Rate limiting and audit tools harden the app for public traffic. These are pre-requisites for any production deployment.
+**Why third:** A real app needs to send emails (signups, password resets), run background jobs (cleanup, notifications), and handle authorization beyond "is the user logged in?" Postgres support unlocks apps that need concurrent writes. Rate limiting hardens the app for public traffic. These are pre-requisites for any production deployment.
 
 ---
 
@@ -88,93 +84,65 @@ This document describes the full roadmap from initial proof-of-concept to stable
 - Per-app stats and graphs (CPU, memory, network, request latency)
 - Self-update mechanism for kernd
 - Per-app environment variables and secrets UI (encrypted at rest)
-- Multi-replica support per app (round-robin via reverse proxy)
 
-**Why fifth:** The MVP dashboard (v0.4) handles the critical path: deploy and serve. v0.5 adds the operational polish that makes it a joy to use long-term. Cloudflare integration removes the need for manual DNS. Stats give visibility. Secrets management removes the need for SSH-ing in to set env vars. Replicas add basic horizontal scale within a single VPS.
-
----
-
-## v0.6 - Scaling and Multi-Host
-
-**Goal:** Support apps that outgrow a single VPS without requiring a complete architecture change.
-
-**Delivers:**
-- Redis session driver (shared sessions across instances)
-- Redis queue driver (shared job queue across instances)
-- Multi-replica app management
-- kernd-to-kernd federation (cluster view across VPSes)
-
-**Why sixth:** Most kern apps will run happily on a single VPS for a long time. But when they outgrow it, the path forward should be clear: add another VPS, run kernd, and the two instances federate. Redis as a session/queue backend is the prerequisite for stateless app instances that can run anywhere.
+**Why fifth:** The MVP dashboard (v0.4) handles the critical path: deploy and serve. v0.5 adds the operational polish that makes it a joy to use long-term. Cloudflare integration removes the need for manual DNS. Stats give visibility. Secrets management removes the need for SSH-ing in to set env vars.
 
 ---
 
-## v0.7 - Beyond HTTP/1.1
+## v0.6 - Modern Protocols
 
-**Goal:** Modern protocol support for performance-sensitive deployments.
+**Goal:** Protocol upgrades and zero-downtime deployments for production apps that need better performance and reliability.
 
 **Delivers:**
-- HTTP/2 support (multiplexing, header compression, server push)
+- HTTP/2 support (multiplexing, header compression)
 - WebSocket shard streams (polished, production-ready)
-- HTTP/3 (QUIC) - experimental
 - Zero-downtime deploys (pre-start hook: warm new process on a different port before swap)
 
-**Why seventh:** HTTP/2 and HTTP/3 improve performance but are not required for correctness. By this point, kern apps are production-proven on HTTP/1.1. Adding protocol upgrades here means the ecosystem is stable enough to handle the complexity, and the testing infrastructure (from v0.2) can verify the new paths.
+**Why sixth:** HTTP/2 improves performance for multi-resource loads but is not required for correctness. By this point, kern apps are production-proven on HTTP/1.1. Adding HTTP/2 here means the ecosystem is stable enough to handle the complexity, and the testing infrastructure (from v0.2) can verify the new paths. Zero-downtime deploys are critical for apps serving real traffic — no user should see a 502 during a deploy.
 
 ---
 
-## v0.8 - Operator Happiness
-
-**Goal:** Templates, infrastructure-as-code support, and deployment automation for teams.
-
-**Delivers:**
-- `kern new --template <name>` (blog, SaaS, API, admin presets)
-- Helm chart for Kubernetes users
-- Terraform module for AWS / Hetzner / DigitalOcean
-- GitHub Actions workflow templates
-
-**Why eighth:** Once kern has a user base with diverse needs, templates reduce boilerplate for common patterns. Infrastructure-as-code support acknowledges that some users will want Kubernetes or cloud providers, even though kernd is the recommended path. This is about meeting users where they are.
-
----
-
-## v0.9 - Ecosystem
-
-**Goal:** Editor integration and community ecosystem infrastructure.
-
-**Delivers:**
-- VSCode extension (LSP for C + `.khtml` syntax highlighting)
-- Neovim plugin (same LSP, treesitter grammar for `.khtml`)
-- `kern new --ai-template` (prebuilt AI chat app template)
-- Plugin registry infrastructure
-
-**Why ninth:** Editor support dramatically improves DX but requires a stable syntax and API to target. By v0.9, the `.khtml` syntax, the API surface, and the project conventions are frozen. The LSP can provide completions, diagnostics, and go-to-definition against a stable target.
-
----
-
-## v1.0 - Stable Release
+## v0.7 - Stable Release
 
 **Goal:** API stability guarantee, complete documentation, and production validation.
 
 **Delivers:**
 - API frozen (semver guarantees from this point)
 - Complete documentation (all features, all APIs, all conventions)
+- Project templates via `kern new --template <name>` (blog, SaaS, API, admin presets)
 - Migration guides from Rails, Phoenix, Laravel
 - Production case studies (3+ real deployments)
 - Performance benchmarks published
 - Security audit completed
 
-**Why last:** A stable release is a promise. Everything before v1.0 is allowed to change. By the time we reach v1.0, the framework has been battle-tested across multiple phases, multiple real deployments, and multiple rounds of feedback. The API has been refined through actual use, not guesswork.
+**Why last:** A stable release is a promise. Everything before v0.7 is allowed to change. By the time we reach v0.7, the framework has been battle-tested across multiple phases, multiple real deployments, and multiple rounds of feedback. The API has been refined through actual use, not guesswork. Templates for common project types reduce boilerplate for new users discovering kern.
 
 ---
 
-## Post-1.0 (Public Roadmap)
+## Post-v0.7 (Public Roadmap)
 
-These items are planned but not committed to a specific version:
+These items are planned but not committed to a specific version. They will be prioritized based on real-world usage and community feedback.
 
+**Framework:**
 - Alternative databases (libSQL/Turso, MySQL)
 - Built-in static site generation
 - Plugin registry (kern plugins vs. kernd plugins)
 - Web-based admin generator (like `rails_admin`)
+
+**Dashboard & Operations:**
+- Multi-replica support per app (round-robin via reverse proxy)
+- Redis session driver (shared sessions across instances)
+- Redis queue driver (shared job queue across instances)
+- kernd-to-kernd federation (cluster view across VPSes)
 - `kernd ha` for active-passive kernd clusters
+- HTTP/3 (QUIC) support
+
+**Infrastructure & Ecosystem:**
+- VSCode extension (LSP for C + `.khtml` syntax highlighting)
+- Neovim plugin (same LSP, treesitter grammar for `.khtml`)
+- Helm chart for Kubernetes users
+- Terraform module for AWS / Hetzner / DigitalOcean
+- GitHub Actions workflow templates
 - Hosted kern offering (kern.dev SaaS)
 
 ---
@@ -182,16 +150,13 @@ These items are planned but not committed to a specific version:
 ## Phase Dependency Chain
 
 ```
-v0.1 (Core)
-  └── v0.2 (DX)
+v0.1 (Core) ✅
+  └── v0.2 (DX) ✅
         └── v0.3 (Production)
               └── v0.4 (Dashboard MVP)
                     └── v0.5 (Dashboard Polish)
-                          ├── v0.6 (Scaling)
-                          └── v0.7 (Protocols)
-                                └── v0.8 (Operator)
-                                      └── v0.9 (Ecosystem)
-                                            └── v1.0 (Stable)
+                          └── v0.6 (Modern Protocols)
+                                └── v0.7 (Stable)
 ```
 
-Each phase is designed to be independently shippable. Users can start building real apps at v0.1, deploy at v0.3, and manage a fleet at v0.4. Later phases add polish and scale, but the core experience is complete early.
+Each phase is designed to be independently shippable. Users can start building real apps at v0.1, deploy at v0.3, and manage a fleet at v0.4. Later phases add polish and protocol upgrades, but the core experience is complete early.
