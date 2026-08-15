@@ -1274,6 +1274,105 @@ char *kern_password_hash(const char *password);
  */
 bool kern_password_verify(const char *password, const char *hash_str);
 
+/* ============================================================
+ * Queue API (kern_queue.c) - In-process job queue with workers
+ * ============================================================ */
+
+/**
+ * kern_queue_t - Job queue with worker thread pool (opaque).
+ */
+typedef struct kern_queue kern_queue_t;
+
+/**
+ * kern_job_t - A queued job (opaque, passed to handler).
+ */
+typedef struct kern_job kern_job_t;
+
+/**
+ * kern_queue_result_t - Return value from a queue handler.
+ */
+typedef enum {
+    KERN_QUEUE_OK = 0,     /* Job completed successfully */
+    KERN_QUEUE_RETRY = 1,  /* Retry with exponential backoff */
+    KERN_QUEUE_FAIL = 2    /* Permanent failure, send to dead letter */
+} kern_queue_result_t;
+
+/**
+ * kern_queue_handler_fn - Handler function for queue jobs.
+ * Receives the job (use kern_job_name/arg/attempt to inspect it).
+ * Returns a result indicating success, retry, or failure.
+ */
+typedef kern_queue_result_t (*kern_queue_handler_fn)(const kern_job_t *job);
+
+/**
+ * Create a new job queue with the given number of worker threads.
+ * Returns NULL on failure or if num_workers <= 0.
+ */
+kern_queue_t *kern_queue_new(int num_workers);
+
+/**
+ * Start the worker threads. Must be called after registering handlers.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_start(kern_queue_t *queue);
+
+/**
+ * Stop all worker threads gracefully.
+ * Workers finish their current job before exiting.
+ */
+void kern_queue_stop(kern_queue_t *queue);
+
+/**
+ * Free the queue and all associated resources.
+ * Stops workers if still running.
+ */
+void kern_queue_free(kern_queue_t *queue);
+
+/**
+ * Register a handler for a given job name.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_register(kern_queue_t *queue, const char *job_name,
+                        kern_queue_handler_fn handler);
+
+/**
+ * Dispatch a job to the queue.
+ * Makes a copy of arg (arg_size bytes). arg may be NULL if arg_size is 0.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_dispatch(kern_queue_t *queue, const char *job_name,
+                        const void *arg, size_t arg_size);
+
+/**
+ * Get the job name.
+ */
+const char *kern_job_name(const kern_job_t *job);
+
+/**
+ * Get the job argument data (pointer to the copied data).
+ */
+const void *kern_job_arg(const kern_job_t *job);
+
+/**
+ * Get the job argument size in bytes.
+ */
+size_t kern_job_arg_size(const kern_job_t *job);
+
+/**
+ * Get the current attempt number (starts at 1).
+ */
+int kern_job_attempt(const kern_job_t *job);
+
+/**
+ * Get the number of jobs in the dead-letter list.
+ */
+int kern_queue_failed_count(const kern_queue_t *queue);
+
+/**
+ * Clear and free all jobs in the dead-letter list.
+ */
+void kern_queue_failed_clear(kern_queue_t *queue);
+
 #ifdef __cplusplus
 }
 #endif
