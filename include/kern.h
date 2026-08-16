@@ -1274,6 +1274,326 @@ char *kern_password_hash(const char *password);
  */
 bool kern_password_verify(const char *password, const char *hash_str);
 
+/* ============================================================
+ * Queue API (kern_queue.c) - In-process job queue with workers
+ * ============================================================ */
+
+/**
+ * kern_queue_t - Job queue with worker thread pool (opaque).
+ */
+typedef struct kern_queue kern_queue_t;
+
+/**
+ * kern_job_t - A queued job (opaque, passed to handler).
+ */
+typedef struct kern_job kern_job_t;
+
+/**
+ * kern_queue_result_t - Return value from a queue handler.
+ */
+typedef enum {
+    KERN_QUEUE_OK = 0,     /* Job completed successfully */
+    KERN_QUEUE_RETRY = 1,  /* Retry with exponential backoff */
+    KERN_QUEUE_FAIL = 2    /* Permanent failure, send to dead letter */
+} kern_queue_result_t;
+
+/**
+ * kern_queue_handler_fn - Handler function for queue jobs.
+ * Receives the job (use kern_job_name/arg/attempt to inspect it).
+ * Returns a result indicating success, retry, or failure.
+ */
+typedef kern_queue_result_t (*kern_queue_handler_fn)(const kern_job_t *job);
+
+/**
+ * Create a new job queue with the given number of worker threads.
+ * Returns NULL on failure or if num_workers <= 0.
+ */
+kern_queue_t *kern_queue_new(int num_workers);
+
+/**
+ * Start the worker threads. Must be called after registering handlers.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_start(kern_queue_t *queue);
+
+/**
+ * Stop all worker threads gracefully.
+ * Workers finish their current job before exiting.
+ */
+void kern_queue_stop(kern_queue_t *queue);
+
+/**
+ * Free the queue and all associated resources.
+ * Stops workers if still running.
+ */
+void kern_queue_free(kern_queue_t *queue);
+
+/**
+ * Register a handler for a given job name.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_register(kern_queue_t *queue, const char *job_name,
+                        kern_queue_handler_fn handler);
+
+/**
+ * Dispatch a job to the queue.
+ * Makes a copy of arg (arg_size bytes). arg may be NULL if arg_size is 0.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_queue_dispatch(kern_queue_t *queue, const char *job_name,
+                        const void *arg, size_t arg_size);
+
+/**
+ * Get the job name.
+ */
+const char *kern_job_name(const kern_job_t *job);
+
+/**
+ * Get the job argument data (pointer to the copied data).
+ */
+const void *kern_job_arg(const kern_job_t *job);
+
+/**
+ * Get the job argument size in bytes.
+ */
+size_t kern_job_arg_size(const kern_job_t *job);
+
+/**
+ * Get the current attempt number (starts at 1).
+ */
+int kern_job_attempt(const kern_job_t *job);
+
+/**
+ * Get the number of jobs in the dead-letter list.
+ */
+int kern_queue_failed_count(const kern_queue_t *queue);
+
+/**
+ * Clear and free all jobs in the dead-letter list.
+ */
+void kern_queue_failed_clear(kern_queue_t *queue);
+
+/* ============================================================
+ * Mailer API (kern_mail.c) - Email composition and sending
+ * ============================================================ */
+
+/**
+ * kern_mail_t - Email message (opaque).
+ */
+typedef struct kern_mail kern_mail_t;
+
+/**
+ * kern_smtp_config_t - SMTP connection configuration.
+ */
+typedef struct {
+    const char *host;
+    int port;
+    const char *username;
+    const char *password;
+} kern_smtp_config_t;
+
+/**
+ * Create a new empty email message.
+ */
+kern_mail_t *kern_mail_new(void);
+
+/**
+ * Set the To address.
+ */
+void kern_mail_to(kern_mail_t *mail, const char *addr);
+
+/**
+ * Set the From address.
+ */
+void kern_mail_from(kern_mail_t *mail, const char *addr);
+
+/**
+ * Set the subject.
+ */
+void kern_mail_subject(kern_mail_t *mail, const char *subj);
+
+/**
+ * Set the body text.
+ */
+void kern_mail_body(kern_mail_t *mail, const char *body);
+
+/**
+ * Add a custom header.
+ */
+void kern_mail_header(kern_mail_t *mail, const char *key, const char *val);
+
+/**
+ * Free the email message.
+ */
+void kern_mail_free(kern_mail_t *mail);
+
+/**
+ * Get the To address.
+ */
+const char *kern_mail_get_to(const kern_mail_t *mail);
+
+/**
+ * Get the From address.
+ */
+const char *kern_mail_get_from(const kern_mail_t *mail);
+
+/**
+ * Get the subject.
+ */
+const char *kern_mail_get_subject(const kern_mail_t *mail);
+
+/**
+ * Get the body text.
+ */
+const char *kern_mail_get_body(const kern_mail_t *mail);
+
+/**
+ * Send the email using the log driver (prints to stderr).
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_mail_send_log(kern_mail_t *mail);
+
+/**
+ * Send the email via SMTP.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_smtp_send(kern_smtp_config_t *cfg, kern_mail_t *mail);
+
+/**
+ * Send the email. If cfg is NULL, uses the log driver; otherwise SMTP.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_mail_send(kern_mail_t *mail, kern_smtp_config_t *cfg);
+
+/* ============================================================
+ * Scheduler API (kern_scheduler.c) - Cron-style task dispatch
+ * ============================================================ */
+
+/**
+ * kern_scheduler_t - Cron scheduler with background thread (opaque).
+ */
+typedef struct kern_scheduler kern_scheduler_t;
+
+/**
+ * Check if a cron expression matches the given time.
+ * 5-field format: min hour dom month dow.
+ */
+bool kern_cron_matches(const char *expr, struct tm *now);
+
+/**
+ * Create a new scheduler that dispatches to the given queue.
+ */
+kern_scheduler_t *kern_scheduler_new(kern_queue_t *queue);
+
+/**
+ * Add a scheduled entry. cron_expr is a 5-field cron expression.
+ * job_name is the name used when dispatching to the queue.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_scheduler_add(kern_scheduler_t *sched, const char *cron_expr,
+                       const char *job_name);
+
+/**
+ * Start the scheduler background thread.
+ * Returns 0 on success, -1 on failure.
+ */
+int kern_scheduler_start(kern_scheduler_t *sched);
+
+/**
+ * Stop the scheduler background thread.
+ */
+void kern_scheduler_stop(kern_scheduler_t *sched);
+
+/**
+ * Free the scheduler and all entries.
+ */
+void kern_scheduler_free(kern_scheduler_t *sched);
+
+/* ============================================================
+ * Authorization Policy API (kern_policy.c)
+ * ============================================================ */
+
+/**
+ * kern_policy_result_t - Result from a policy check.
+ */
+typedef struct {
+    bool allowed;
+    const char *reason;
+} kern_policy_result_t;
+
+/**
+ * Return an "allow" policy result.
+ */
+kern_policy_result_t kern_allow(void);
+
+/**
+ * Return a "deny" policy result with optional reason.
+ */
+kern_policy_result_t kern_deny(const char *reason);
+
+/**
+ * Create a 403 Forbidden response with optional reason text.
+ */
+kern_response_t *kern_response_forbidden(const char *reason);
+
+/**
+ * KERN_POLICY(name) - Declare a policy function.
+ * Usage: KERN_POLICY(can_edit_post) { ... return kern_allow(); }
+ */
+#define KERN_POLICY(name) \
+    kern_policy_result_t name##_policy(kern_req_t *req, void *resource)
+
+/**
+ * KERN_AUTHORIZE(req, name, resource) - Check a policy; return 403 on denial.
+ * Place inside a handler. Expands to an early-return if denied.
+ */
+#define KERN_AUTHORIZE(req, name, resource) \
+    do { \
+        kern_policy_result_t _pr = name##_policy((req), (resource)); \
+        if (!_pr.allowed) { \
+            return kern_response_forbidden(_pr.reason); \
+        } \
+    } while (0)
+
+/* ============================================================
+ * Rate Limiting API (kern_rate_limit.c) - Token bucket algorithm
+ * ============================================================ */
+
+/**
+ * kern_rate_limiter_t - Thread-safe token bucket rate limiter (opaque).
+ */
+typedef struct kern_rate_limiter kern_rate_limiter_t;
+
+/**
+ * Create a new rate limiter.
+ * max_tokens: bucket capacity (burst size).
+ * refill_rate: tokens added per second.
+ */
+kern_rate_limiter_t *kern_rate_limiter_new(double max_tokens, double refill_rate);
+
+/**
+ * Free the rate limiter.
+ */
+void kern_rate_limiter_free(kern_rate_limiter_t *rl);
+
+/**
+ * Check (and consume) a token for the given key.
+ * Returns true if allowed, false if rate-limited.
+ */
+bool kern_rate_limiter_check(kern_rate_limiter_t *rl, const char *key);
+
+/**
+ * Check rate limit for a key.
+ * Returns NULL if allowed, or a 429 response if rate-limited.
+ */
+kern_response_t *kern_rate_limit_check(kern_rate_limiter_t *rl, const char *key);
+
+/**
+ * Clean up idle buckets (removes entries that have been full and
+ * idle for > 5 minutes).
+ */
+void kern_rate_limiter_cleanup(kern_rate_limiter_t *rl);
+
 #ifdef __cplusplus
 }
 #endif

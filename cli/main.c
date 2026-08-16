@@ -5,6 +5,7 @@
  *   kern new <name>    - Scaffold a new project
  *   kern build         - Production build
  *   kern dev           - Development mode with watch
+ *   kern doctor        - Project diagnostics
  *   kern --version     - Print version
  *   kern --help        - Print usage
  */
@@ -20,6 +21,7 @@ int cmd_build(int argc, char **argv);
 int cmd_dev(int argc, char **argv);
 int cmd_fmt(int argc, char **argv);
 int cmd_test(int argc, char **argv);
+int cmd_doctor(int argc, char **argv);
 
 static void print_usage(void) {
     printf("kern %s - A C11 web framework\n\n", KERN_VERSION);
@@ -29,6 +31,7 @@ static void print_usage(void) {
     printf("  kern dev           Start development server with auto-rebuild\n");
     printf("  kern fmt           Format source files (.c, .h, .khtml)\n");
     printf("  kern test          Run project tests\n");
+    printf("  kern doctor        Diagnose project issues\n");
     printf("  kern --version     Print version\n");
     printf("  kern --help        Print this help message\n");
     printf("\n");
@@ -71,6 +74,10 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "test") == 0) {
         return cmd_test(argc - 1, argv + 1);
+    }
+
+    if (strcmp(cmd, "doctor") == 0) {
+        return cmd_doctor(argc - 1, argv + 1);
     }
 
     fprintf(stderr, "Error: unknown command '%s'\n", cmd);
