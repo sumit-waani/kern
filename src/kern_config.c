@@ -174,7 +174,7 @@ kern_config_t *kern_config_load(const char *path) {
             val_start++;
             const char *val_end = strrchr(val_start, '"');
             size_t vlen;
-            if (val_end && val_end > val_start) {
+            if (val_end && val_end >= val_start) {
                 vlen = (size_t)(val_end - val_start);
             } else {
                 vlen = strlen(val_start);

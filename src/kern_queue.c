@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define KERN_QUEUE_MAX_ATTEMPTS 5
@@ -145,8 +146,7 @@ static void *worker_thread(void *arg) {
         /* Look up handler */
         kern_queue_handler_fn handler = NULL;
         pthread_mutex_lock(&queue->mutex);
-        void *handler_ptr = kern_dict_get(queue->handlers, job->name);
-        memcpy(&handler, &handler_ptr, sizeof(handler));
+        handler = (kern_queue_handler_fn)kern_dict_get(queue->handlers, job->name);
         pthread_mutex_unlock(&queue->mutex);
 
         if (!handler) {
@@ -170,9 +170,38 @@ static void *worker_thread(void *arg) {
                 pthread_mutex_unlock(&queue->mutex);
             } else {
                 /* Exponential backoff: base * 2^(attempt-1) */
+                unsigned int shift = (unsigned)(job->attempt - 1);
+                if (shift > 20) shift = 20;
                 unsigned int delay_us = KERN_QUEUE_BASE_DELAY_US
-                    * (1u << (unsigned)(job->attempt - 1));
-                usleep(delay_us);
+                    * (1u << shift);
+
+                /* Use condvar timed wait instead of usleep so
+                 * kern_queue_stop() can interrupt the backoff sleep. */
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_sec += delay_us / 1000000;
+                ts.tv_nsec += (long)(delay_us % 1000000) * 1000L;
+                if (ts.tv_nsec >= 1000000000L) {
+                    ts.tv_sec += 1;
+                    ts.tv_nsec -= 1000000000L;
+                }
+
+                pthread_mutex_lock(&queue->mutex);
+                while (queue->running) {
+                    int rc = pthread_cond_timedwait(&queue->cond,
+                                                   &queue->mutex, &ts);
+                    if (rc != 0) break; /* ETIMEDOUT or error */
+                }
+                bool still_running = queue->running;
+                pthread_mutex_unlock(&queue->mutex);
+
+                if (!still_running) {
+                    /* Shutting down - put job back and exit */
+                    pthread_mutex_lock(&queue->mutex);
+                    enqueue_job(queue, job);
+                    pthread_mutex_unlock(&queue->mutex);
+                    break;
+                }
 
                 job->attempt++;
                 pthread_mutex_lock(&queue->mutex);
@@ -316,9 +345,7 @@ int kern_queue_register(kern_queue_t *queue, const char *job_name,
     if (!queue || !job_name || !handler) return -1;
 
     pthread_mutex_lock(&queue->mutex);
-    void *handler_ptr;
-    memcpy(&handler_ptr, &handler, sizeof(handler_ptr));
-    int rc = kern_dict_set(queue->handlers, job_name, handler_ptr);
+    int rc = kern_dict_set(queue->handlers, job_name, (void *)handler);
     pthread_mutex_unlock(&queue->mutex);
 
     return rc;
@@ -361,7 +388,13 @@ int kern_job_attempt(const kern_job_t *job) {
 
 int kern_queue_failed_count(const kern_queue_t *queue) {
     if (!queue) return 0;
-    return queue->failed_count;
+    /* Cast away const to lock - the mutex protects the read but
+     * does not logically mutate observable queue state. */
+    kern_queue_t *q = (kern_queue_t *)queue;
+    pthread_mutex_lock(&q->mutex);
+    int count = q->failed_count;
+    pthread_mutex_unlock(&q->mutex);
+    return count;
 }
 
 void kern_queue_failed_clear(kern_queue_t *queue) {
