@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Reverse proxy with host-header routing, cgroup v2 resource management, log capture with rotation, and backup system.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create kernd/kernd_proxy.h - declares kernd_proxy_start(uv_loop_t *loop, int http_port), kernd_proxy_stop(), kernd_proxy_add_vhost(const char *hostname, int backend_port), kernd_proxy_remove_vhost(const char *hostname)",
     "Create kernd/kernd_proxy.c - reverse proxy server: listens on http_port using uv_tcp_t, accepts connections, reads request, parses Host header using kern_http_parser, looks up backend port from a kern_dict_t vhost table, connects to 127.0.0.1:<app_port> using uv_tcp_t, forwards request, streams response back. Adds X-Forwarded-For header. Returns 404 for unknown hosts, 502 if backend is down.",
@@ -32,5 +32,5 @@
     "cd /projects/sandbox/kern/build && ctest --output-on-failure"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 36 tests pass (33 existing + 3 new: test_kernd_proxy with 7 tests, test_kernd_cgroup with 8 tests, test_kernd_backup with 6 tests). Zero warnings from new code. Pre-existing warnings unchanged. cgroups not available in this container (expected - tests verify graceful fallback). Proxy test only tests vhost table logic, no network. Backup test uses /tmp temp directories successfully. kern_dict_iter uses callback pattern (kern_dict_iter_fn), not iterator object."
 }
