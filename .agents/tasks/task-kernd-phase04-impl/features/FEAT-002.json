@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "kernd Admin Web UI and App Registry - HTTP server on admin port with session-based auth, dashboard pages, app CRUD backed by SQLite, and deploy worker with process management.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create kernd/kernd_admin.h - declares kernd_admin_start(kernd_config_t *cfg, uv_loop_t *loop) and kernd_admin_stop(). This starts the admin HTTP server using kern_server_new() and kern_router_new().",
     "Create kernd/kernd_admin.c - initializes admin HTTP server on configured admin_port. Registers routes: GET / (dashboard home), GET /login (login form), POST /login (authenticate), POST /logout, GET /apps (app list), POST /apps (add app), POST /apps/:name/deploy (trigger deploy), POST /apps/:name/delete (remove app). Uses kern_server_set_router().",
@@ -33,5 +33,5 @@
     "cd /projects/sandbox/kern/build && ctest --output-on-failure"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 33 tests pass (31 existing + 2 new: test_kernd_app_registry with 10 tests, test_kernd_process with 6 tests). Zero warnings from implementation code. The pre-existing test_kernd_process.c has one implicit-declaration warning for mkdir (missing sys/stat.h include) - cannot modify test contract files. kernd binary correctly integrates admin server, DB, registry, process manager, sessions. Admin server starts on admin_port with full route registration."
 }
