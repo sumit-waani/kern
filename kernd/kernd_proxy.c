@@ -166,6 +166,11 @@ static void proxy_conn_close(proxy_conn_t *conn) {
     }
 }
 
+typedef struct {
+    proxy_conn_t *conn;
+    char *response_buf;  /* Heap-allocated response to free after write */
+} error_write_data_t;
+
 static void send_error_response(proxy_conn_t *conn, int code, const char *message) {
     /* Heap-allocate the response buffer so it survives until the write completes */
     char *response = malloc(512);
@@ -189,22 +194,30 @@ static void send_error_response(proxy_conn_t *conn, int code, const char *messag
         proxy_conn_close(conn);
         return;
     }
-    wreq->data = conn;
+
+    /* Store both conn and response buffer in wreq->data for freeing in callback */
+    error_write_data_t *wd = malloc(sizeof(error_write_data_t));
+    if (!wd) {
+        free(response);
+        free(wreq);
+        proxy_conn_close(conn);
+        return;
+    }
+    wd->conn = conn;
+    wd->response_buf = response;
+    wreq->data = wd;
     conn->client.data = conn;
-    /* Store response buffer pointer in connect_req.data temporarily for freeing */
-    conn->connect_req.data = response;
     uv_write(wreq, (uv_stream_t *)&conn->client, &buf, 1, on_client_write);
 }
 
 static void on_client_write(uv_write_t *req, int status) {
     (void)status;
-    proxy_conn_t *conn = (proxy_conn_t *)req->data;
+    error_write_data_t *wd = (error_write_data_t *)req->data;
+    proxy_conn_t *conn = wd->conn;
+    /* Free the heap-allocated response buffer */
+    free(wd->response_buf);
+    free(wd);
     free(req);
-    /* Free the heap-allocated response buffer stored in connect_req.data */
-    if (conn->connect_req.data) {
-        free(conn->connect_req.data);
-        conn->connect_req.data = NULL;
-    }
     proxy_conn_close(conn);
 }
 
@@ -272,9 +285,19 @@ static void on_backend_write(uv_write_t *req, int status) {
     (void)status;
 }
 
+typedef struct {
+    proxy_conn_t *conn;
+    char *buf;  /* Heap-allocated request buffer to free after write completes */
+} forward_write_data_t;
+
 static void on_request_forwarded(uv_write_t *req, int status) {
-    proxy_conn_t *conn = (proxy_conn_t *)req->data;
+    forward_write_data_t *wd = (forward_write_data_t *)req->data;
+    proxy_conn_t *conn = wd->conn;
     (void)status;
+
+    /* Free the heap-allocated modified request buffer */
+    free(wd->buf);
+    free(wd);
 
     /* Start reading response from backend */
     conn->backend.data = conn;
@@ -294,8 +317,15 @@ static void on_backend_connect(uv_connect_t *req, int status) {
 
     conn->backend_connected = 1;
 
-    /* Inject X-Forwarded-For header into the request */
-    char modified[PROXY_BUF_SIZE + 256];
+    /* Heap-allocate the modified request buffer so it remains valid
+     * until the write callback fires (libuv requirement). */
+    size_t mod_buf_size = PROXY_BUF_SIZE + 256;
+    char *modified = malloc(mod_buf_size);
+    if (!modified) {
+        kernd_log_error("proxy: malloc failed for request buffer");
+        proxy_conn_close(conn);
+        return;
+    }
     size_t mod_len = 0;
 
     /* Find end of first line (\r\n) to inject header after it */
@@ -305,12 +335,12 @@ static void on_backend_connect(uv_connect_t *req, int status) {
         memcpy(modified, conn->request_buf, first_line_len);
         mod_len = first_line_len;
 
-        int hdr_len = snprintf(modified + mod_len, sizeof(modified) - mod_len,
+        int hdr_len = snprintf(modified + mod_len, mod_buf_size - mod_len,
                                "X-Forwarded-For: %s\r\n", conn->client_ip);
         mod_len += (size_t)hdr_len;
 
         size_t remaining = conn->request_len - first_line_len;
-        if (mod_len + remaining < sizeof(modified)) {
+        if (mod_len + remaining < mod_buf_size) {
             memcpy(modified + mod_len, conn->request_buf + first_line_len, remaining);
             mod_len += remaining;
         }
@@ -319,9 +349,20 @@ static void on_backend_connect(uv_connect_t *req, int status) {
         mod_len = conn->request_len;
     }
 
+    /* Store buffer pointer and conn in write data for freeing in callback */
+    forward_write_data_t *wd = malloc(sizeof(forward_write_data_t));
+    if (!wd) {
+        free(modified);
+        kernd_log_error("proxy: malloc failed for write data");
+        proxy_conn_close(conn);
+        return;
+    }
+    wd->conn = conn;
+    wd->buf = modified;
+
     /* Forward request to backend */
     uv_buf_t buf = uv_buf_init(modified, (unsigned int)mod_len);
-    conn->write_req.data = conn;
+    conn->write_req.data = wd;
     uv_write(&conn->write_req, (uv_stream_t *)&conn->backend, &buf, 1, on_request_forwarded);
 }
 

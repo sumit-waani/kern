@@ -121,23 +121,23 @@ static void *deploy_worker(void *arg) {
     /* Run build command */
     if (app->build_cmd && app->build_cmd[0] != '\0') {
         char *esc_dir = shell_escape_single_quotes(app_dir);
-        char *esc_build = shell_escape_single_quotes(app->build_cmd);
 
-        if (!esc_dir || !esc_build) {
+        if (!esc_dir) {
             kernd_log_error("deploy: allocation failed for '%s'", ctx->app_name);
             kernd_app_update_status(ctx->db, ctx->app_name, "failed");
             free(esc_dir);
-            free(esc_build);
             kernd_app_free(app);
             free(ctx);
             return NULL;
         }
 
         char cmd[4096];
-        snprintf(cmd, sizeof(cmd), "cd '%s' && '%s'", esc_dir, esc_build);
+        /* build_cmd is an intentional shell expression entered by the admin;
+         * quote only the cd target to prevent path injection, but pass
+         * build_cmd unquoted so multi-word commands and pipes work. */
+        snprintf(cmd, sizeof(cmd), "cd '%s' && %s", esc_dir, app->build_cmd);
 
         free(esc_dir);
-        free(esc_build);
 
         kernd_log_info("deploy: building '%s'", ctx->app_name);
         int rc = system(cmd);
