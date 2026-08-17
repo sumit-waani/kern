@@ -10,5 +10,10 @@
     "test_quality": "pass",
     "docker_build": "skipped",
     "summary": "Build with zero warnings. All 36 tests pass (30 original + 6 new kernd tests). Tests exercise real code paths: config loading with temp TOML files, app registry CRUD with in-memory SQLite, process fork/exec/stop with /bin/sleep, vhost table operations, cgroup graceful fallback, and backup tar.gz creation/pruning with temp directories."
+  },
+  "review_fixes": {
+    "review_file": "2026-08-17-071256-review.md",
+    "issues_fixed": 3,
+    "summary": "Fixed 3 issues from review: (1) build_cmd over-quoting removed so multi-word shell commands work, (2) proxy request forwarding now heap-allocates the modified buffer to avoid stack use-after-free, (3) error response buffer stored in wreq->data via error_write_data_t instead of fragile connect_req.data field."
   }
 }
