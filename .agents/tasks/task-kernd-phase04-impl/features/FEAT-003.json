@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Reverse proxy with host-header routing, cgroup v2 resource management, log capture with rotation, and backup system.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create kernd/kernd_proxy.h - declares kernd_proxy_start(uv_loop_t *loop, int http_port), kernd_proxy_stop(), kernd_proxy_add_vhost(const char *hostname, int backend_port), kernd_proxy_remove_vhost(const char *hostname)",
     "Create kernd/kernd_proxy.c - reverse proxy server: listens on http_port using uv_tcp_t, accepts connections, reads request, parses Host header using kern_http_parser, looks up backend port from a kern_dict_t vhost table, connects to 127.0.0.1:<app_port> using uv_tcp_t, forwards request, streams response back. Adds X-Forwarded-For header. Returns 404 for unknown hosts, 502 if backend is down.",

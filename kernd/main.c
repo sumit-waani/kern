@@ -10,10 +10,12 @@
 
 #include "kernd_admin.h"
 #include "kernd_app_registry.h"
+#include "kernd_cgroup.h"
 #include "kernd_config.h"
 #include "kernd_init.h"
 #include "kernd_log.h"
 #include "kernd_process.h"
+#include "kernd_proxy.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -88,6 +90,17 @@ static int cmd_run(int argc, char **argv) {
     kernd_process_init();
     kern_session_init();
 
+    /* Initialize cgroup subsystem (non-fatal if unavailable) */
+    kernd_cgroup_init();
+
+    /* Initialize reverse proxy vhost table */
+    if (kernd_proxy_init() != 0) {
+        kernd_log_error("failed to initialize proxy");
+        kern_db_close(db);
+        kernd_config_free(cfg);
+        return 1;
+    }
+
     /* Create event loop */
     main_loop = uv_default_loop();
     if (!main_loop) {
@@ -114,12 +127,22 @@ static int cmd_run(int argc, char **argv) {
         return 1;
     }
 
+    /* Start reverse proxy */
+    if (kernd_proxy_start(main_loop, cfg->http_port) != 0) {
+        kernd_log_error("failed to start reverse proxy");
+        kernd_admin_stop();
+        kern_db_close(db);
+        kernd_config_free(cfg);
+        return 1;
+    }
+
     kernd_log_info("event loop running (press Ctrl+C to stop)");
 
     /* Run event loop */
     uv_run(main_loop, UV_RUN_DEFAULT);
 
     /* Cleanup */
+    kernd_proxy_stop();
     kernd_admin_stop();
 
     uv_signal_stop(&sigint_handle);
