@@ -32,5 +32,5 @@
     "cd /projects/sandbox/kern/build && ctest --output-on-failure"
   ],
   "blocked_reason": null,
-  "findings": "All 36 tests pass (33 existing + 3 new: test_kernd_proxy with 7 tests, test_kernd_cgroup with 8 tests, test_kernd_backup with 6 tests). Zero warnings from new code. Pre-existing warnings unchanged. cgroups not available in this container (expected - tests verify graceful fallback). Proxy test only tests vhost table logic, no network. Backup test uses /tmp temp directories successfully. kern_dict_iter uses callback pattern (kern_dict_iter_fn), not iterator object."
+  "findings": "All 36 tests pass (33 existing + 3 new: test_kernd_proxy with 7 tests, test_kernd_cgroup with 8 tests, test_kernd_backup with 6 tests). Zero warnings from new code. Pre-existing warnings unchanged. cgroups not available in this container (expected - tests verify graceful fallback). Proxy test only tests vhost table logic, no network. Backup test uses /tmp temp directories successfully. kern_dict_iter uses callback pattern (kern_dict_iter_fn), not iterator object. Review fix: kernd_process_stop now uses WNOHANG polling with 5s timeout and SIGKILL escalation instead of blocking waitpid. Proxy on_backend_write now uses backend_write_data_t to recover conn and calls proxy_conn_close on write failure."
 }
