@@ -258,6 +258,11 @@ static int extract_host(const char *buf, size_t len, char *host, size_t host_siz
     return j > 0 ? 0 : -1;
 }
 
+typedef struct {
+    proxy_conn_t *conn;
+    char *buf;
+} backend_write_data_t;
+
 static void on_backend_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     proxy_conn_t *conn = (proxy_conn_t *)stream->data;
 
@@ -275,14 +280,31 @@ static void on_backend_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
         proxy_conn_close(conn);
         return;
     }
-    wreq->data = buf->base;  /* Store so we can free in callback */
+
+    backend_write_data_t *wd = malloc(sizeof(backend_write_data_t));
+    if (!wd) {
+        free(buf->base);
+        free(wreq);
+        proxy_conn_close(conn);
+        return;
+    }
+    wd->conn = conn;
+    wd->buf = buf->base;
+    wreq->data = wd;
     uv_write(wreq, (uv_stream_t *)&conn->client, &wbuf, 1, on_backend_write);
 }
 
 static void on_backend_write(uv_write_t *req, int status) {
-    free(req->data);  /* Free the buffer */
+    backend_write_data_t *wd = (backend_write_data_t *)req->data;
+    proxy_conn_t *conn = wd->conn;
+    free(wd->buf);
+    free(wd);
     free(req);
-    (void)status;
+    if (status < 0) {
+        /* Client write failed (client disconnected) - close the connection
+         * to stop the backend read loop from accumulating dead writes */
+        proxy_conn_close(conn);
+    }
 }
 
 typedef struct {

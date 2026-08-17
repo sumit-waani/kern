@@ -114,14 +114,38 @@ int kernd_process_stop(const char *name) {
 
     pid_t pid = entry->info.pid;
 
-    /* Send SIGTERM */
+    /* Send SIGTERM to request graceful shutdown */
     kill(pid, SIGTERM);
 
-    /* Wait for exit with timeout */
+    /*
+     * Non-blocking wait with timeout and SIGKILL escalation.
+     * We poll with WNOHANG to avoid blocking the libuv event loop
+     * indefinitely. Maximum wait is ~5 seconds (50 x 100ms).
+     *
+     * TODO(v0.5): For production use, replace this polling loop with a
+     * fully async approach using uv_timer_t to avoid any blocking on
+     * the event loop thread.
+     */
     int status;
-    int wait_result = waitpid(pid, &status, 0);
+    int wait_result = waitpid(pid, &status, WNOHANG);
+    if (wait_result == 0) {
+        /* Process hasn't exited yet - poll with a grace period */
+        for (int i = 0; i < 50; i++) {  /* 50 x 100ms = 5 seconds max */
+            usleep(100000);  /* 100ms */
+            wait_result = waitpid(pid, &status, WNOHANG);
+            if (wait_result != 0) break;
+        }
+        if (wait_result == 0) {
+            /* Still running after 5s grace period - escalate to SIGKILL */
+            kernd_log_warn("process '%s' (pid %d) did not exit after SIGTERM, "
+                           "sending SIGKILL", name, (int)pid);
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);  /* SIGKILL is always fatal */
+        }
+    }
+
     if (wait_result < 0) {
-        /* Process may have already exited */
+        /* Process may have already been reaped by SIGCHLD handler */
     }
 
     entry->info.status = KERND_PROC_STOPPED;
