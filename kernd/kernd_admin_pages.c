@@ -142,14 +142,21 @@ kern_response_t *kernd_page_apps(kern_req_t *req) {
             kernd_html_escape(body, status ? status : "created");
             kern_buf_writes(body, "</span></td><td>");
 
+            /* Use escaped name in form action attributes to prevent XSS */
+            kern_buf_t *esc_name_buf = kern_buf_new(256);
+            kernd_html_escape(esc_name_buf, name ? name : "");
+            const char *esc_name = kern_buf_data(esc_name_buf);
+
             kern_buf_writef(body,
                 "<form method=\"POST\" action=\"/apps/%s/deploy\" style=\"display:inline\">"
                 "<button class=\"btn btn-primary btn-sm\">Deploy</button></form> ",
-                name ? name : "");
+                esc_name);
             kern_buf_writef(body,
                 "<form method=\"POST\" action=\"/apps/%s/delete\" style=\"display:inline\">"
                 "<button class=\"btn btn-danger btn-sm\">Delete</button></form>",
-                name ? name : "");
+                esc_name);
+
+            kern_buf_free(esc_name_buf);
 
             kern_buf_writes(body, "</td></tr>\n");
         }

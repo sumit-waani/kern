@@ -27,6 +27,40 @@ static int ensure_dir(const char *path) {
     return 0;
 }
 
+/**
+ * Escape a string for safe inclusion in single-quoted shell arguments.
+ * Replaces each ' with '\'' (end quote, escaped quote, reopen quote).
+ * Caller must free the returned string.
+ * Returns NULL on allocation failure.
+ */
+static char *shell_escape_single_quotes(const char *input) {
+    if (!input) return NULL;
+
+    size_t quotes = 0;
+    for (const char *p = input; *p; p++) {
+        if (*p == '\'') quotes++;
+    }
+
+    size_t input_len = strlen(input);
+    size_t out_len = input_len + (quotes * 3) + 1;
+    char *out = malloc(out_len);
+    if (!out) return NULL;
+
+    char *dst = out;
+    for (const char *p = input; *p; p++) {
+        if (*p == '\'') {
+            *dst++ = '\'';
+            *dst++ = '\\';
+            *dst++ = '\'';
+            *dst++ = '\'';
+        } else {
+            *dst++ = *p;
+        }
+    }
+    *dst = '\0';
+    return out;
+}
+
 int kernd_backup_run(const char *app_name, const char *data_dir, const char *backup_dir) {
     if (!app_name || !data_dir || !backup_dir) {
         return -1;
@@ -68,9 +102,25 @@ int kernd_backup_run(const char *app_name, const char *data_dir, const char *bac
     char tar_path[2048];
     snprintf(tar_path, sizeof(tar_path), "%s/%s.tar.gz", app_backup_dir, timestamp);
 
+    char *esc_tar_path = shell_escape_single_quotes(tar_path);
+    char *esc_data_dir = shell_escape_single_quotes(data_dir);
+    char *esc_app_name = shell_escape_single_quotes(app_name);
+
+    if (!esc_tar_path || !esc_data_dir || !esc_app_name) {
+        kernd_log_error("backup: allocation failed for %s", app_name);
+        free(esc_tar_path);
+        free(esc_data_dir);
+        free(esc_app_name);
+        return -1;
+    }
+
     char cmd[4096];
     snprintf(cmd, sizeof(cmd), "tar -czf '%s' -C '%s' '%s' 2>/dev/null",
-             tar_path, data_dir, app_name);
+             esc_tar_path, esc_data_dir, esc_app_name);
+
+    free(esc_tar_path);
+    free(esc_data_dir);
+    free(esc_app_name);
 
     int rc = system(cmd);
     if (rc != 0) {

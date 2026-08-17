@@ -3,6 +3,12 @@
  *
  * Uses libuv TCP to accept connections, parses the Host header,
  * looks up the backend port, and forwards traffic.
+ *
+ * TODO(v0.5): The proxy currently reads only a single chunk (up to 8KB)
+ * from the client before forwarding to the backend. Requests larger than
+ * 8KB (e.g., file uploads, large POST bodies) are silently truncated.
+ * A future version should resume uv_read_start on the client after the
+ * backend connect succeeds and stream data bidirectionally.
  */
 
 #include "kernd_proxy.h"
@@ -31,6 +37,8 @@ typedef struct {
     int backend_port;
     int backend_connected;
     char client_ip[64];
+    int close_count;  /* Refcount: free struct when all handles are closed */
+    int handles_to_close;  /* Total handles that need closing */
 } proxy_conn_t;
 
 /* Forward declarations */
@@ -115,29 +123,57 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 }
 
 static void on_close(uv_handle_t *handle) {
-    (void)handle;
-    /* Freed by proxy_conn_close */
+    /* Recover the proxy_conn_t from the handle.
+     * Both client and backend are embedded in the struct, so we use
+     * container_of logic via the handle's data pointer. */
+    proxy_conn_t *conn = (proxy_conn_t *)handle->data;
+    if (!conn) return;
+
+    conn->close_count++;
+    if (conn->close_count >= conn->handles_to_close) {
+        free(conn);
+    }
 }
 
 static void proxy_conn_close(proxy_conn_t *conn) {
     if (!conn) return;
 
+    /* Determine how many handles need to close */
+    int to_close = 0;
+
     if (!uv_is_closing((uv_handle_t *)&conn->client)) {
+        to_close++;
+    }
+    if (conn->backend_connected && !uv_is_closing((uv_handle_t *)&conn->backend)) {
+        to_close++;
+    }
+
+    if (to_close == 0) {
+        /* Both already closing or never opened; free directly */
+        free(conn);
+        return;
+    }
+
+    conn->handles_to_close = to_close;
+
+    if (!uv_is_closing((uv_handle_t *)&conn->client)) {
+        conn->client.data = conn;
         uv_close((uv_handle_t *)&conn->client, on_close);
     }
     if (conn->backend_connected && !uv_is_closing((uv_handle_t *)&conn->backend)) {
+        conn->backend.data = conn;
         uv_close((uv_handle_t *)&conn->backend, on_close);
     }
-
-    /* Note: conn is freed when all handles close, but since we embed handles
-     * in the struct, we free after a brief delay. For simplicity in this MVP,
-     * we let the event loop handle the close callbacks first. We rely on
-     * the fact that the handles are embedded (not heap-allocated separately). */
 }
 
 static void send_error_response(proxy_conn_t *conn, int code, const char *message) {
-    char response[512];
-    int len = snprintf(response, sizeof(response),
+    /* Heap-allocate the response buffer so it survives until the write completes */
+    char *response = malloc(512);
+    if (!response) {
+        proxy_conn_close(conn);
+        return;
+    }
+    int len = snprintf(response, 512,
         "HTTP/1.1 %d %s\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: %zu\r\n"
@@ -147,13 +183,16 @@ static void send_error_response(proxy_conn_t *conn, int code, const char *messag
         code, message, strlen(message), message);
 
     uv_buf_t buf = uv_buf_init(response, (unsigned int)len);
-    /* Allocate a write request on heap since conn may be freed */
     uv_write_t *wreq = malloc(sizeof(uv_write_t));
     if (!wreq) {
+        free(response);
         proxy_conn_close(conn);
         return;
     }
     wreq->data = conn;
+    conn->client.data = conn;
+    /* Store response buffer pointer in connect_req.data temporarily for freeing */
+    conn->connect_req.data = response;
     uv_write(wreq, (uv_stream_t *)&conn->client, &buf, 1, on_client_write);
 }
 
@@ -161,6 +200,11 @@ static void on_client_write(uv_write_t *req, int status) {
     (void)status;
     proxy_conn_t *conn = (proxy_conn_t *)req->data;
     free(req);
+    /* Free the heap-allocated response buffer stored in connect_req.data */
+    if (conn->connect_req.data) {
+        free(conn->connect_req.data);
+        conn->connect_req.data = NULL;
+    }
     proxy_conn_close(conn);
 }
 
@@ -351,7 +395,6 @@ static void on_proxy_connection(uv_stream_t *server, int status) {
     conn->client.data = conn;
 
     if (uv_accept(server, (uv_stream_t *)&conn->client) != 0) {
-        proxy_conn_close(conn);
         free(conn);
         return;
     }

@@ -36,6 +36,12 @@ static void signal_handler(uv_signal_t *handle, int signum) {
     }
 }
 
+static void sigchld_handler(uv_signal_t *handle, int signum) {
+    (void)handle;
+    (void)signum;
+    kernd_process_reap();
+}
+
 static void print_usage(void) {
     printf("kernd %s - VPS dashboard daemon\n\n", KERND_VERSION);
     printf("Usage:\n");
@@ -113,11 +119,14 @@ static int cmd_run(int argc, char **argv) {
     /* Set up signal handlers */
     uv_signal_t sigint_handle;
     uv_signal_t sigterm_handle;
+    uv_signal_t sigchld_handle;
 
     uv_signal_init(main_loop, &sigint_handle);
     uv_signal_init(main_loop, &sigterm_handle);
+    uv_signal_init(main_loop, &sigchld_handle);
     uv_signal_start(&sigint_handle, signal_handler, SIGINT);
     uv_signal_start(&sigterm_handle, signal_handler, SIGTERM);
+    uv_signal_start(&sigchld_handle, sigchld_handler, SIGCHLD);
 
     /* Start admin server */
     if (kernd_admin_start(cfg, main_loop, db) != 0) {
@@ -147,8 +156,10 @@ static int cmd_run(int argc, char **argv) {
 
     uv_signal_stop(&sigint_handle);
     uv_signal_stop(&sigterm_handle);
+    uv_signal_stop(&sigchld_handle);
     uv_close((uv_handle_t *)&sigint_handle, NULL);
     uv_close((uv_handle_t *)&sigterm_handle, NULL);
+    uv_close((uv_handle_t *)&sigchld_handle, NULL);
     uv_run(main_loop, UV_RUN_DEFAULT);  /* Drain pending close callbacks */
 
     kern_db_close(db);

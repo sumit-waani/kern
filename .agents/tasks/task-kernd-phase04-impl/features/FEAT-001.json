@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "kernd daemon skeleton - main entry point, config system, logging, init subcommand, and CMakeLists.txt integration. Creates the kernd binary that loads config, initializes logging, and runs the libuv event loop with graceful shutdown.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create kernd/ directory at project root (parallel to cli/)",
     "Create kernd/kernd_config.h - defines kernd_config_t struct with fields: admin_port (int, default 8443), http_port (int, default 80), https_port (int, default 443), data_dir (char*, default /var/lib/kernd), log_dir (char*, default /var/log/kernd), dashboard_secret (char*), admin_password_hash (char*). Declares: kernd_config_load(const char *path), kernd_config_free(kernd_config_t*), kernd_config_defaults()",
@@ -27,5 +27,5 @@
     "cd /projects/sandbox/kern/build && ./kernd --version"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Build and all 31 tests pass cleanly. kernd binary is at build/kernd. The test_kernd_config uses include path ../kernd/kernd_config.h and links kernd_config.c directly. CMakeLists uses an if/else in the foreach loop to handle this. The test_kernd_app_registry.c and test_kernd_process.c files were NOT added to KERN_TESTS (they reference headers from FEAT-002)."
 }

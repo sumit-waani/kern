@@ -2,6 +2,11 @@
  * kernd_admin.c - Admin HTTP server implementation
  *
  * Sets up routes and dispatches to page handlers.
+ *
+ * TODO(v0.5): The admin server currently serves over plaintext HTTP.
+ * TLS termination should be added to protect session cookies and
+ * credentials in transit. Until then, deployers should place a TLS-
+ * terminating reverse proxy (e.g., nginx) in front of the admin port.
  */
 
 #include "kernd_admin.h"

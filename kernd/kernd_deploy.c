@@ -2,6 +2,12 @@
  * kernd_deploy.c - Deploy worker implementation
  *
  * Runs git clone + build in a background pthread.
+ *
+ * Thread safety: kern_db_open() uses sqlite3_open() which defaults to
+ * serialized threading mode (SQLITE_THREADSAFE=1) on standard builds.
+ * Combined with WAL mode and a 5000ms busy timeout configured in
+ * kern_db_open(), concurrent access from this worker thread and the
+ * main event loop is safe without an additional mutex.
  */
 
 #include "kernd_deploy.h"
@@ -19,6 +25,42 @@ typedef struct {
     char app_name[256];
     char data_dir[512];
 } deploy_ctx_t;
+
+/**
+ * Escape a string for safe inclusion in single-quoted shell arguments.
+ * Replaces each ' with '\'' (end quote, escaped quote, reopen quote).
+ * Caller must free the returned string.
+ * Returns NULL on allocation failure.
+ */
+static char *shell_escape_single_quotes(const char *input) {
+    if (!input) return NULL;
+
+    /* Count single quotes to determine output size */
+    size_t quotes = 0;
+    for (const char *p = input; *p; p++) {
+        if (*p == '\'') quotes++;
+    }
+
+    size_t input_len = strlen(input);
+    /* Each quote becomes 4 chars: '\'' (replacing original 1 char = net +3) */
+    size_t out_len = input_len + (quotes * 3) + 1;
+    char *out = malloc(out_len);
+    if (!out) return NULL;
+
+    char *dst = out;
+    for (const char *p = input; *p; p++) {
+        if (*p == '\'') {
+            *dst++ = '\'';
+            *dst++ = '\\';
+            *dst++ = '\'';
+            *dst++ = '\'';
+        } else {
+            *dst++ = *p;
+        }
+    }
+    *dst = '\0';
+    return out;
+}
 
 static void *deploy_worker(void *arg) {
     deploy_ctx_t *ctx = (deploy_ctx_t *)arg;
@@ -39,13 +81,31 @@ static void *deploy_worker(void *arg) {
 
     /* Clone or pull the repository */
     if (app->repo_url) {
-        char cmd[2048];
+        char *esc_dir = shell_escape_single_quotes(app_dir);
+        char *esc_url = shell_escape_single_quotes(app->repo_url);
+        char *esc_branch = shell_escape_single_quotes(
+            app->branch ? app->branch : "main");
+
+        if (!esc_dir || !esc_url || !esc_branch) {
+            kernd_log_error("deploy: allocation failed for '%s'", ctx->app_name);
+            kernd_app_update_status(ctx->db, ctx->app_name, "failed");
+            free(esc_dir);
+            free(esc_url);
+            free(esc_branch);
+            kernd_app_free(app);
+            free(ctx);
+            return NULL;
+        }
+
+        char cmd[4096];
         snprintf(cmd, sizeof(cmd),
                  "cd '%s' && if [ -d .git ]; then git pull; "
                  "else git clone '%s' -b '%s' .; fi",
-                 app_dir,
-                 app->repo_url,
-                 app->branch ? app->branch : "main");
+                 esc_dir, esc_url, esc_branch);
+
+        free(esc_dir);
+        free(esc_url);
+        free(esc_branch);
 
         kernd_log_info("deploy: cloning '%s'", ctx->app_name);
         int rc = system(cmd);
@@ -60,8 +120,24 @@ static void *deploy_worker(void *arg) {
 
     /* Run build command */
     if (app->build_cmd && app->build_cmd[0] != '\0') {
-        char cmd[2048];
-        snprintf(cmd, sizeof(cmd), "cd '%s' && %s", app_dir, app->build_cmd);
+        char *esc_dir = shell_escape_single_quotes(app_dir);
+        char *esc_build = shell_escape_single_quotes(app->build_cmd);
+
+        if (!esc_dir || !esc_build) {
+            kernd_log_error("deploy: allocation failed for '%s'", ctx->app_name);
+            kernd_app_update_status(ctx->db, ctx->app_name, "failed");
+            free(esc_dir);
+            free(esc_build);
+            kernd_app_free(app);
+            free(ctx);
+            return NULL;
+        }
+
+        char cmd[4096];
+        snprintf(cmd, sizeof(cmd), "cd '%s' && '%s'", esc_dir, esc_build);
+
+        free(esc_dir);
+        free(esc_build);
 
         kernd_log_info("deploy: building '%s'", ctx->app_name);
         int rc = system(cmd);
