@@ -1,0 +1,7 @@
+{
+  "task_id": "task-kernd-phase04-impl",
+  "task_description": "Implement Phase 0.4 - Dashboard MVP (kernd). A single-binary VPS daemon that manages kern app deployments: admin web UI, git-based deploy worker, process manager, reverse proxy with host-header routing, cgroup v2 resource isolation, log capture, and backup system.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

@@ -1,0 +1,36 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Reverse proxy with host-header routing, cgroup v2 resource management, log capture with rotation, and backup system.",
+  "status": "pending",
+  "steps": [
+    "Create kernd/kernd_proxy.h - declares kernd_proxy_start(uv_loop_t *loop, int http_port), kernd_proxy_stop(), kernd_proxy_add_vhost(const char *hostname, int backend_port), kernd_proxy_remove_vhost(const char *hostname)",
+    "Create kernd/kernd_proxy.c - reverse proxy server: listens on http_port using uv_tcp_t, accepts connections, reads request, parses Host header using kern_http_parser, looks up backend port from a kern_dict_t vhost table, connects to 127.0.0.1:<app_port> using uv_tcp_t, forwards request, streams response back. Adds X-Forwarded-For header. Returns 404 for unknown hosts, 502 if backend is down.",
+    "Create kernd/kernd_cgroup.h - declares kernd_cgroup_init(), kernd_cgroup_create(const char *app_name, int cpu_percent, int mem_mb, int max_pids), kernd_cgroup_assign(const char *app_name, pid_t pid), kernd_cgroup_destroy(const char *app_name), kernd_cgroup_stats(const char *app_name) returning kernd_cgroup_stats_t (mem_current, cpu_usage_usec)",
+    "Create kernd/kernd_cgroup.c - cgroup v2 management: creates /sys/fs/cgroup/kernd/<app_name>/ directory, writes memory.max, cpu.max, pids.max. Assigns processes by writing PID to cgroup.procs. Reads stats from memory.current and cpu.stat. Graceful fallback: if /sys/fs/cgroup/kernd/ cannot be created (not root, no cgroup2), log warning and skip silently.",
+    "Create kernd/kernd_log_capture.h - declares kernd_log_capture_start(const char *app_name, const char *log_dir, int stdout_fd, int stderr_fd), kernd_log_capture_stop(const char *app_name), kernd_log_rotate(const char *app_name)",
+    "Create kernd/kernd_log_capture.c - captures app stdout/stderr via pipe() before fork(). Reads from pipe in a thread, writes to <log_dir>/apps/<name>/current.log. Rotation: when file exceeds 10MB, rename to <date>.log, start fresh current.log. Cleanup old logs older than 30 days.",
+    "Create kernd/kernd_backup.h - declares kernd_backup_run(const char *app_name, const char *data_dir, const char *backup_dir) which creates tar.gz backup of app source + sqlite db",
+    "Create kernd/kernd_backup.c - backup system: creates tar.gz archive of app src directory using system('tar -czf ...'), copies SQLite db via kern_db_exec('VACUUM INTO ...'). Stores in <backup_dir>/<app_name>/<timestamp>.tar.gz. Prunes backups older than 7 days.",
+    "Integrate proxy into main.c: after admin server starts, call kernd_proxy_start(loop, cfg->http_port). When app starts via process manager, call kernd_proxy_add_vhost(app->domain, app->port).",
+    "Integrate cgroup into process manager: before starting app process, call kernd_cgroup_create() and after fork, call kernd_cgroup_assign().",
+    "Integrate log capture into process manager: set up pipes before fork, start log capture after fork.",
+    "Add all new .c files to kernd target in CMakeLists.txt",
+    "Create tests/test_kernd_proxy.c - tests vhost table operations: add vhost, lookup finds correct port, remove vhost, unknown host returns NULL. Add to KERN_TESTS.",
+    "Create tests/test_kernd_cgroup.c - tests cgroup path generation and stats parsing (mock /sys/fs/cgroup by using a temp directory). Tests graceful fallback when cgroup fs unavailable. Add to KERN_TESTS.",
+    "Create tests/test_kernd_backup.c - tests backup file creation using a temp directory. Add to KERN_TESTS."
+  ],
+  "acceptance_criteria": [
+    "kernd builds with zero warnings including proxy, cgroup, log capture, and backup code",
+    "test_kernd_proxy passes (vhost table CRUD works)",
+    "test_kernd_cgroup passes (graceful fallback works, path generation correct)",
+    "test_kernd_backup passes (tar.gz creation works)",
+    "All existing tests continue to pass"
+  ],
+  "verification": [
+    "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc)",
+    "cd /projects/sandbox/kern/build && ctest --output-on-failure"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

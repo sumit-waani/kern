@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "kernd daemon skeleton - main entry point, config system, logging, init subcommand, and CMakeLists.txt integration. Creates the kernd binary that loads config, initializes logging, and runs the libuv event loop with graceful shutdown.",
+  "status": "in_progress",
+  "steps": [
+    "Create kernd/ directory at project root (parallel to cli/)",
+    "Create kernd/kernd_config.h - defines kernd_config_t struct with fields: admin_port (int, default 8443), http_port (int, default 80), https_port (int, default 443), data_dir (char*, default /var/lib/kernd), log_dir (char*, default /var/log/kernd), dashboard_secret (char*), admin_password_hash (char*). Declares: kernd_config_load(const char *path), kernd_config_free(kernd_config_t*), kernd_config_defaults()",
+    "Create kernd/kernd_config.c - loads kernd-specific config from TOML using kern_config_load() from libkern. Maps dotted keys (admin.port, admin.password_hash, paths.data_dir, paths.log_dir, security.dashboard_secret) to the kernd_config_t struct. Provides kernd_config_defaults() for when no file exists.",
+    "Create kernd/kernd_log.h - declares kernd_log_info(const char *fmt, ...), kernd_log_error(const char *fmt, ...), kernd_log_warn(const char *fmt, ...) with printf format attribute",
+    "Create kernd/kernd_log.c - logging functions that write timestamped messages [YYYY-MM-DD HH:MM:SS] [LEVEL] message to stderr. Simple implementation using vfprintf.",
+    "Create kernd/kernd_init.c and kernd/kernd_init.h - implements 'kernd init' subcommand: generates 32-byte random secret (read from /dev/urandom, hex-encode), generates 16-byte random admin password (base64url-encoded), hashes it with kern_password_hash(), writes /etc/kernd/dashboard.toml (or --config path) with generated values, prints credentials to stdout",
+    "Create kernd/main.c - entry point that parses CLI args: 'kernd init [--config <path>]', 'kernd run [--config <path>]', 'kernd --version', 'kernd --help'. For 'run': loads config, sets up SIGTERM/SIGINT signal handlers via libuv (uv_signal_t), creates uv_loop_t, runs uv_run(loop, UV_RUN_DEFAULT), exits cleanly on signal.",
+    "Add kernd binary target to CMakeLists.txt: add_executable(kernd kernd/main.c kernd/kernd_config.c kernd/kernd_log.c kernd/kernd_init.c), target_link_libraries(kernd PRIVATE kern), set output name to 'kernd'",
+    "Create tests/test_kernd_config.c - tests config loading: test default values, test loading from a valid TOML string (write a temp file, load it, verify fields), test missing file returns defaults gracefully. Add to KERN_TESTS list in CMakeLists.txt."
+  ],
+  "acceptance_criteria": [
+    "Project builds with zero warnings including the new kernd binary",
+    "./kernd --version prints 'kernd 0.4.0'",
+    "./kernd --help prints usage information",
+    "test_kernd_config passes all assertions",
+    "All existing 30 tests continue to pass (31+ total with new test)"
+  ],
+  "verification": [
+    "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc)",
+    "cd /projects/sandbox/kern/build && ctest --output-on-failure",
+    "cd /projects/sandbox/kern/build && ./kernd --version"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

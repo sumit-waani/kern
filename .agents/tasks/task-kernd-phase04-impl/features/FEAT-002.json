@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "kernd Admin Web UI and App Registry - HTTP server on admin port with session-based auth, dashboard pages, app CRUD backed by SQLite, and deploy worker with process management.",
+  "status": "pending",
+  "steps": [
+    "Create kernd/kernd_admin.h - declares kernd_admin_start(kernd_config_t *cfg, uv_loop_t *loop) and kernd_admin_stop(). This starts the admin HTTP server using kern_server_new() and kern_router_new().",
+    "Create kernd/kernd_admin.c - initializes admin HTTP server on configured admin_port. Registers routes: GET / (dashboard home), GET /login (login form), POST /login (authenticate), POST /logout, GET /apps (app list), POST /apps (add app), POST /apps/:name/deploy (trigger deploy), POST /apps/:name/delete (remove app). Uses kern_server_set_router().",
+    "Create kernd/kernd_admin_auth.c - admin authentication: login handler verifies password against stored hash using kern_password_verify(). Uses kern_session_start() and kern_session_set()/get() for session state. Auth check helper function that returns redirect response to /login if not authenticated.",
+    "Create kernd/kernd_html.h - declares kernd_html_layout(kern_buf_t *buf, const char *title, const char *body_html), kernd_html_nav(kern_buf_t *buf, bool logged_in), kernd_html_escape(kern_buf_t *buf, const char *str)",
+    "Create kernd/kernd_html.c - HTML page rendering helpers. kernd_html_layout() wraps content in full HTML doc with basic CSS (inline styles, no CDN dependency). kernd_html_nav() renders navigation bar.",
+    "Create kernd/kernd_admin_pages.c - page handler functions: login_page (GET /login returns HTML form), dashboard_page (GET / shows hostname, uptime, kernd version, app count), apps_page (GET /apps lists all registered apps with status)",
+    "Create kernd/kernd_app_registry.h - declares kernd_app_t struct (name, repo_url, branch, build_cmd, start_cmd, port, domain, status), kernd_registry_init(kern_db_t*), kernd_registry_add(kern_db_t*, kernd_app_t*), kernd_registry_remove(kern_db_t*, const char *name), kernd_registry_list(kern_db_t*), kernd_registry_get(kern_db_t*, const char *name), kernd_registry_update_status(kern_db_t*, const char *name, const char *status)",
+    "Create kernd/kernd_app_registry.c - SQLite-backed app registry. Creates 'apps' table on init. CRUD operations using kern_db_exec_params()/kern_db_query_params(). App states: created, deploying, running, stopped, failed.",
+    "Create kernd/kernd_deploy.h - declares kernd_deploy_start(kern_db_t *db, const char *app_name, const char *data_dir) which triggers a build in a worker thread",
+    "Create kernd/kernd_deploy.c - deploy worker: clones git repo (system() call to 'git clone'), runs build command, updates app status in registry. Uses pthread for background execution. Deploy steps: git clone/pull, run build_cmd, on success update status to 'built'.",
+    "Create kernd/kernd_process.h - declares kernd_process_init(), kernd_process_start(const char *name, const char *cmd, const char *work_dir, int port), kernd_process_stop(const char *name), kernd_process_status(const char *name) returning kernd_proc_info_t* (pid, status, uptime)",
+    "Create kernd/kernd_process.c - process manager using fork()+exec(). Tracks child PIDs in a dict. SIGCHLD handler reaps zombies. Start: fork, exec the app binary. Stop: send SIGTERM, wait 5s, SIGKILL. Status tracks pid, start_time, whether running.",
+    "Integrate into kernd/main.c run command: after config load, open database at data_dir/kernd.db, call kernd_registry_init(db), kernd_process_init(), kern_session_init(), kernd_admin_start(cfg, loop). On shutdown, kernd_admin_stop() and close db.",
+    "Add all new kernd/*.c files to the kernd target in CMakeLists.txt",
+    "Create tests/test_kernd_app_registry.c - replace existing stub with proper tests: test registry init, add app, list apps, get app by name, update status, remove app, duplicate name handling. Use in-memory SQLite.",
+    "Create tests/test_kernd_process.c - replace existing stub with tests: test process init, test start/stop (fork /bin/sleep 60, verify pid, stop it, verify stopped). Add to KERN_TESTS in CMakeLists.txt."
+  ],
+  "acceptance_criteria": [
+    "kernd builds with zero warnings including all admin UI and registry code",
+    "test_kernd_app_registry passes (CRUD operations work)",
+    "test_kernd_process passes (start/stop child processes work)",
+    "kernd run starts and listens on configured admin port",
+    "All existing tests continue to pass"
+  ],
+  "verification": [
+    "cd /projects/sandbox/kern/build && cmake .. && make -j$(nproc)",
+    "cd /projects/sandbox/kern/build && ctest --output-on-failure"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
