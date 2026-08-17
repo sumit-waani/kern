@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "kernd Admin Web UI and App Registry - HTTP server on admin port with session-based auth, dashboard pages, app CRUD backed by SQLite, and deploy worker with process management.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create kernd/kernd_admin.h - declares kernd_admin_start(kernd_config_t *cfg, uv_loop_t *loop) and kernd_admin_stop(). This starts the admin HTTP server using kern_server_new() and kern_router_new().",
     "Create kernd/kernd_admin.c - initializes admin HTTP server on configured admin_port. Registers routes: GET / (dashboard home), GET /login (login form), POST /login (authenticate), POST /logout, GET /apps (app list), POST /apps (add app), POST /apps/:name/deploy (trigger deploy), POST /apps/:name/delete (remove app). Uses kern_server_set_router().",

@@ -92,16 +92,29 @@ add_executable(kernd
     kernd/kernd_config.c
     kernd/kernd_log.c
     kernd/kernd_init.c
+    kernd/kernd_app_registry.c
+    kernd/kernd_process.c
+    kernd/kernd_deploy.c
+    kernd/kernd_html.c
+    kernd/kernd_admin.c
+    kernd/kernd_admin_auth.c
+    kernd/kernd_admin_pages.c
 )
 target_include_directories(kernd PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(kernd PRIVATE kern)
 
 # Test executables
-set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static test_fmt test_test_framework test_shard test_queue test_mail test_scheduler test_policy test_rate_limit test_doctor test_kernd_config)
+set(KERN_TESTS test_buf test_str test_dict test_arena test_http_parser test_http_server test_router test_fs_router test_html test_tpl_parser test_tpl_codegen test_tpl_integration test_db test_qb test_migrate test_config test_session test_auth test_app test_asset test_static test_fmt test_test_framework test_shard test_queue test_mail test_scheduler test_policy test_rate_limit test_doctor test_kernd_config test_kernd_app_registry test_kernd_process)
 
 foreach(test_name ${KERN_TESTS})
     if(${test_name} STREQUAL "test_kernd_config")
         add_executable(${test_name} tests/${test_name}.c kernd/kernd_config.c)
+    elseif(${test_name} STREQUAL "test_kernd_app_registry")
+        add_executable(${test_name} tests/${test_name}.c
+            kernd/kernd_app_registry.c kernd/kernd_log.c)
+    elseif(${test_name} STREQUAL "test_kernd_process")
+        add_executable(${test_name} tests/${test_name}.c
+            kernd/kernd_process.c kernd/kernd_app_registry.c kernd/kernd_log.c)
     else()
         add_executable(${test_name} tests/${test_name}.c)
     endif()

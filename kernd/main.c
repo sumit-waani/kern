@@ -8,9 +8,12 @@
  *   kernd --help                   - Print usage
  */
 
+#include "kernd_admin.h"
+#include "kernd_app_registry.h"
 #include "kernd_config.h"
 #include "kernd_init.h"
 #include "kernd_log.h"
+#include "kernd_process.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -64,10 +67,32 @@ static int cmd_run(int argc, char **argv) {
     kernd_log_info("admin port: %d", cfg->admin_port);
     kernd_log_info("data dir: %s", cfg->data_dir);
 
+    /* Open database */
+    char db_path[1024];
+    snprintf(db_path, sizeof(db_path), "%s/kernd.db", cfg->data_dir);
+    kern_db_t *db = kern_db_open(db_path);
+    if (!db) {
+        kernd_log_error("failed to open database at %s", db_path);
+        kernd_config_free(cfg);
+        return 1;
+    }
+
+    /* Initialize subsystems */
+    if (kernd_registry_init(db) != 0) {
+        kernd_log_error("failed to initialize app registry");
+        kern_db_close(db);
+        kernd_config_free(cfg);
+        return 1;
+    }
+
+    kernd_process_init();
+    kern_session_init();
+
     /* Create event loop */
     main_loop = uv_default_loop();
     if (!main_loop) {
         kernd_log_error("failed to create event loop");
+        kern_db_close(db);
         kernd_config_free(cfg);
         return 1;
     }
@@ -81,18 +106,29 @@ static int cmd_run(int argc, char **argv) {
     uv_signal_start(&sigint_handle, signal_handler, SIGINT);
     uv_signal_start(&sigterm_handle, signal_handler, SIGTERM);
 
+    /* Start admin server */
+    if (kernd_admin_start(cfg, main_loop, db) != 0) {
+        kernd_log_error("failed to start admin server");
+        kern_db_close(db);
+        kernd_config_free(cfg);
+        return 1;
+    }
+
     kernd_log_info("event loop running (press Ctrl+C to stop)");
 
     /* Run event loop */
     uv_run(main_loop, UV_RUN_DEFAULT);
 
     /* Cleanup */
+    kernd_admin_stop();
+
     uv_signal_stop(&sigint_handle);
     uv_signal_stop(&sigterm_handle);
     uv_close((uv_handle_t *)&sigint_handle, NULL);
     uv_close((uv_handle_t *)&sigterm_handle, NULL);
     uv_run(main_loop, UV_RUN_DEFAULT);  /* Drain pending close callbacks */
 
+    kern_db_close(db);
     kernd_log_info("shutdown complete");
     kernd_config_free(cfg);
     return 0;
