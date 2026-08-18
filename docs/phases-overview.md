@@ -38,7 +38,7 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 ---
 
-## v2.1 - Bootstrap CSS (Replace Tailwind)
+## v0.2.1 - Bootstrap CSS (Replace Tailwind) ✅
 
 **Goal:** Remove the custom Tailwind CSS compiler. Ship Bootstrap 5 as the default CSS framework — zero maintenance, ready-to-use components, known by both developers and AI agents.
 
@@ -54,11 +54,10 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 **Why a micro-phase:** This is a backwards-incompatible change to the asset pipeline and scaffolding. Shipping it between v0.2 and v0.3 avoids carrying Tailwind debt into the production-readiness phase. It's a clean swap: remove compiler, embed static files, update templates.
 
-**Status:** Planned. See [Phase 2.1 Plan](phase2.1-bootstrap.md) for full implementation details.
 
 ---
 
-## v0.3 - Production Readiness
+## v0.3 - Production Readiness ✅
 
 **Goal:** Add the features required to deploy a real application: email, background work, authorization, and security hardening.
 
@@ -76,7 +75,7 @@ This document describes the full roadmap from initial proof-of-concept to stable
 
 ---
 
-## v0.4 - Dashboard MVP
+## v0.4 - Dashboard MVP ✅
 
 **Goal:** Deliver kernd, the VPS dashboard that makes deployment a one-click operation. This is kern's differentiating feature.
 
@@ -142,31 +141,11 @@ This document describes the full roadmap from initial proof-of-concept to stable
 ## Post-v0.7 (Public Roadmap)
 
 These items are planned but not committed to a specific version. They will be prioritized based on real-world usage and community feedback.
-
-**Framework:**
-- PostgreSQL driver (via libpq)
-- Alternative databases (libSQL/Turso, MySQL)
-- Built-in static site generation
-- Plugin registry (kern plugins vs. kernd plugins)
-- Web-based admin generator (like `rails_admin`)
-
-**Dashboard & Operations:**
-- Multi-replica support per app (round-robin via reverse proxy)
-- Redis session driver (shared sessions across instances)
-- Redis queue driver (shared job queue across instances)
-- kernd-to-kernd federation (cluster view across VPSes)
-- `kernd ha` for active-passive kernd clusters
-- HTTP/3 (QUIC) support
 - WebSocket support (for apps that genuinely need bidirectional real-time: collaborative editing, gaming)
 
 **Infrastructure & Ecosystem:**
 - VSCode extension (LSP for C + `.khtml` syntax highlighting)
 - Neovim plugin (same LSP, treesitter grammar for `.khtml`)
-- Helm chart for Kubernetes users
-- Terraform module for AWS / Hetzner / DigitalOcean
-- GitHub Actions workflow templates
-- Hosted kern offering (kern.dev SaaS)
-
 ---
 
 ## Phase Dependency Chain
